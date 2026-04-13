@@ -9,7 +9,7 @@ const { Pool } = require('pg');
 const pgSession = require('connect-pg-simple')(session);
 
 // ── QR Code dynamique ──
-const QR_INTERVAL_MS = 2 * 60 * 1000; // Renouvellement toutes les 2 minutes
+const QR_INTERVAL_MS = 4 * 60 * 1000; // Renouvellement toutes les 4 minutes
 let qrState = { current: null, previous: null, generatedAt: null };
 
 function genererQRToken() {
