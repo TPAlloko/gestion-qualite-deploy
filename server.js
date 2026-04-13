@@ -10,6 +10,9 @@ const pgSession = require('connect-pg-simple')(session);
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Faire confiance au proxy Railway pour les cookies secure
+app.set('trust proxy', 1);
+
 // ── Connexion PostgreSQL ──
 // Pas de SSL pour les connexions internes Railway (.railway.internal)
 const isInternalRailway = process.env.DATABASE_URL && process.env.DATABASE_URL.includes('.railway.internal');
