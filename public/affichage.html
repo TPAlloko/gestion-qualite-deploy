@@ -14,7 +14,7 @@
     color:white;
   }
   .container {
-    display:flex; flex-direction:column; align-items:center; gap:24px;
+    display:flex; flex-direction:column; align-items:center; gap:20px;
     padding:40px; max-width:480px; width:100%; text-align:center;
   }
   .service { font-size:0.7rem; letter-spacing:4px; opacity:0.5; text-transform:uppercase; }
@@ -39,11 +39,32 @@
     50%{opacity:1;transform:scale(1.015);}
   }
 
-  .url-box {
-    background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15);
-    border-radius:12px; padding:12px 20px; font-family:monospace;
-    font-size:0.9rem; color:#7ec8e3; word-break:break-all;
+  /* Compte à rebours */
+  .countdown-box {
+    width:100%; background:rgba(255,255,255,0.07);
+    border:1px solid rgba(255,255,255,0.15); border-radius:14px;
+    padding:12px 20px; display:flex; align-items:center; gap:12px;
   }
+  .countdown-label { font-size:0.8rem; opacity:0.6; flex:1; text-align:left; }
+  .countdown-timer { font-size:1.4rem; font-weight:800; color:#7ec8e3; font-variant-numeric:tabular-nums; }
+
+  .progress-bar-wrapper {
+    width:100%; height:6px; background:rgba(255,255,255,0.1);
+    border-radius:3px; overflow:hidden;
+  }
+  .progress-bar {
+    height:100%; background:linear-gradient(90deg,#27ae60,#7ec8e3);
+    border-radius:3px; transition:width 1s linear;
+  }
+  .progress-bar.urgent { background:linear-gradient(90deg,#e74c3c,#f39c12); }
+
+  .refresh-badge {
+    display:inline-block; background:rgba(39,174,96,0.2);
+    border:1px solid rgba(39,174,96,0.4); color:#2ecc71;
+    border-radius:20px; padding:4px 14px; font-size:0.78rem; font-weight:600;
+    animation:fadeIn 0.5s ease; margin-top:-8px;
+  }
+  @keyframes fadeIn { from{opacity:0;transform:scale(0.9)} to{opacity:1;transform:scale(1)} }
 
   .heure {
     font-size:3rem; font-weight:700; font-variant-numeric:tabular-nums;
@@ -52,7 +73,7 @@
   .date-txt { font-size:0.9rem; opacity:0.6; margin-top:-16px; }
 
   .steps {
-    display:flex; gap:20px; justify-content:center; flex-wrap:wrap;
+    display:flex; gap:16px; justify-content:center; flex-wrap:wrap;
   }
   .step-item {
     display:flex; flex-direction:column; align-items:center; gap:6px;
@@ -78,45 +99,107 @@
     <div id="qrcode"></div>
   </div>
 
-  <div class="url-box" id="url-box">Chargement...</div>
+  <div id="refresh-badge" style="display:none">
+    <span class="refresh-badge">✓ QR Code renouvelé</span>
+  </div>
+
+  <!-- Compte à rebours -->
+  <div class="countdown-box">
+    <div class="countdown-label">Renouvellement du QR Code dans</div>
+    <div class="countdown-timer" id="countdown">2:00</div>
+  </div>
+  <div class="progress-bar-wrapper">
+    <div class="progress-bar" id="progress-bar" style="width:100%"></div>
+  </div>
 
   <div class="steps">
     <div class="step-item"><div class="step-num">📷</div><div class="step-txt">Ouvrez l'appareil photo</div></div>
     <div class="step-item"><div class="step-num">🔍</div><div class="step-txt">Scannez le QR Code</div></div>
-    <div class="step-item"><div class="step-num">✅</div><div class="step-txt">Confirmez votre nom</div></div>
+    <div class="step-item"><div class="step-num">✅</div><div class="step-txt">Confirmez votre présence</div></div>
   </div>
 </div>
 
 <script>
-// Horloge
+// ── Horloge ──
 function majHeure() {
   const now = new Date();
   const jours = ['Dimanche','Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi'];
-  const mois = ['janvier','février','mars','avril','mai','juin','juillet','août','septembre','octobre','novembre','décembre'];
-  document.getElementById('heure').textContent = now.toLocaleTimeString('fr-FR', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  const mois  = ['janvier','février','mars','avril','mai','juin','juillet','août','septembre','octobre','novembre','décembre'];
+  document.getElementById('heure').textContent =
+    now.toLocaleTimeString('fr-FR', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
   document.getElementById('date-txt').textContent =
     `${jours[now.getDay()]} ${now.getDate()} ${mois[now.getMonth()]} ${now.getFullYear()}`;
 }
 setInterval(majHeure, 1000); majHeure();
 
-// Générer QR Code depuis l'IP du serveur
-async function genererQR() {
+// ── QR Code dynamique ──
+let currentUrl = null;
+let qrInstance = null;
+let intervalMs = 120000;
+let remainingMs = 120000;
+let isFirstLoad = true;
+
+async function chargerQRToken() {
   try {
-    const resp = await fetch('/api/infos');
-    const { url } = await resp.json();
-    document.getElementById('url-box').textContent = url;
-    new QRCode(document.getElementById('qrcode'), {
-      text: url,
-      width: 260, height: 260,
-      colorDark: '#0d1f2d',
-      colorLight: '#ffffff',
-      correctLevel: QRCode.CorrectLevel.H
-    });
+    const resp = await fetch('/api/qr-token');
+    const data = await resp.json();
+
+    remainingMs = data.remainingMs;
+    intervalMs  = data.intervalMs;
+
+    if (data.url !== currentUrl) {
+      currentUrl = data.url;
+      regenererQR(data.url);
+      if (!isFirstLoad) afficherBadgeRefresh();
+      isFirstLoad = false;
+    }
   } catch(e) {
-    document.getElementById('url-box').textContent = 'Erreur de connexion';
+    console.error('Erreur chargement QR token', e);
   }
 }
-genererQR();
+
+function regenererQR(url) {
+  const el = document.getElementById('qrcode');
+  el.innerHTML = '';
+  qrInstance = new QRCode(el, {
+    text: url,
+    width: 260, height: 260,
+    colorDark:  '#0d1f2d',
+    colorLight: '#ffffff',
+    correctLevel: QRCode.CorrectLevel.H
+  });
+}
+
+function afficherBadgeRefresh() {
+  const badge = document.getElementById('refresh-badge');
+  badge.style.display = 'block';
+  setTimeout(() => { badge.style.display = 'none'; }, 3000);
+}
+
+// ── Compte à rebours ──
+function majCountdown() {
+  remainingMs = Math.max(0, remainingMs - 1000);
+
+  const totalSec   = Math.ceil(remainingMs / 1000);
+  const min = Math.floor(totalSec / 60);
+  const sec = totalSec % 60;
+  document.getElementById('countdown').textContent =
+    `${min}:${sec.toString().padStart(2, '0')}`;
+
+  const pct = (remainingMs / intervalMs) * 100;
+  const bar = document.getElementById('progress-bar');
+  bar.style.width = pct + '%';
+  bar.className   = 'progress-bar' + (pct < 20 ? ' urgent' : '');
+
+  // Recharger le token quand il est sur le point d'expirer
+  if (remainingMs <= 1000) chargerQRToken();
+}
+
+// Démarrage
+chargerQRToken();
+setInterval(majCountdown, 1000);
+// Vérification périodique (au cas où le serveur a régénéré le token)
+setInterval(chargerQRToken, 15000);
 </script>
 </body>
 </html>

@@ -4,8 +4,21 @@ const { Server } = require('socket.io');
 const path     = require('path');
 const session  = require('express-session');
 const bcrypt   = require('bcryptjs');
+const crypto   = require('crypto');
 const { Pool } = require('pg');
 const pgSession = require('connect-pg-simple')(session);
+
+// ── QR Code dynamique ──
+const QR_INTERVAL_MS = 2 * 60 * 1000; // Renouvellement toutes les 2 minutes
+let qrState = { current: null, previous: null, generatedAt: null };
+
+function genererQRToken() {
+  qrState.previous = qrState.current;
+  qrState.current  = crypto.randomBytes(16).toString('hex');
+  qrState.generatedAt = Date.now();
+}
+genererQRToken(); // Token initial au démarrage
+setInterval(genererQRToken, QR_INTERVAL_MS);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -149,6 +162,17 @@ app.get('/api/infos', (req, res) => {
   res.json({ url: `${base}/badge` });
 });
 
+// ── QR Token dynamique (pour la borne d'affichage) ──
+app.get('/api/qr-token', (req, res) => {
+  const base = process.env.PUBLIC_URL || `http://localhost:${PORT}`;
+  const remaining = QR_INTERVAL_MS - (Date.now() - qrState.generatedAt);
+  res.json({
+    url:         `${base}/badge?t=${qrState.current}`,
+    remainingMs: remaining,
+    intervalMs:  QR_INTERVAL_MS
+  });
+});
+
 // ── Agents ──
 app.get('/api/agents', async (req, res) => {
   const { rows } = await pool.query('SELECT * FROM agents ORDER BY nom');
@@ -234,8 +258,17 @@ app.get('/api/stats', async (req, res) => {
 
 // ── Badgeage ──
 app.post('/api/badger', async (req, res) => {
-  const { agentId, photo, source } = req.body;
+  const { agentId, photo, source, qrToken } = req.body;
   if (!agentId) return res.status(400).json({ erreur: 'ID agent manquant' });
+
+  // Validation du token QR dynamique
+  const tokenValide = qrToken && (qrToken === qrState.current || qrToken === qrState.previous);
+  if (!tokenValide) {
+    return res.status(403).json({
+      erreur: 'QR Code expiré ou invalide. Scannez le QR Code affiché au bureau.',
+      expired: true
+    });
+  }
 
   const { rows: agentRows } = await pool.query(
     'SELECT * FROM agents WHERE id = $1', [agentId.toUpperCase()]
