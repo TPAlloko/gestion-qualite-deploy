@@ -11,9 +11,11 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // ── Connexion PostgreSQL ──
+// Pas de SSL pour les connexions internes Railway (.railway.internal)
+const isInternalRailway = process.env.DATABASE_URL && process.env.DATABASE_URL.includes('.railway.internal');
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false
+  ssl: isInternalRailway ? false : (process.env.DATABASE_URL ? { rejectUnauthorized: false } : false)
 });
 
 // ── Initialisation des tables ──
