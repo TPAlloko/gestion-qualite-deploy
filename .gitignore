@@ -1,9 +1,11 @@
 node_modules/
-data/cert.json
-data/pointages.json
-data/users.json
+data/
 public/photos/
+public/pieces-jointes/
 exports/
 qrcodes/
 *.log
 .env
+*.bat
+*.exe
+ecosystem.config.js
