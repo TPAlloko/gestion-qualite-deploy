@@ -1137,8 +1137,8 @@ async function chargerDemandes() {
         <div style="font-size:0.82rem;color:#444;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${d.motif}">${d.motif}</div>
         ${d.piecesJointes && d.piecesJointes.length ? `
           <div style="margin-top:5px;display:flex;flex-wrap:wrap;gap:4px;">
-            ${d.piecesJointes.map(pj => `
-              <a href="${pj.chemin}" target="_blank"
+            ${d.piecesJointes.map((pj, idx) => `
+              <a href="/api/demandes/${d.id}/pj/${idx}" target="_blank"
                 style="display:inline-flex;align-items:center;gap:3px;font-size:0.72rem;
                        background:#eaf4fb;color:#1A5676;border:1px solid #bee3f8;
                        border-radius:6px;padding:2px 7px;text-decoration:none;"

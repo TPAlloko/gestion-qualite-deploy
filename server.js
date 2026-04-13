@@ -441,6 +441,21 @@ app.delete('/api/demandes/:id', requireAuth, requireAdmin, async (req, res) => {
   res.json({ ok: true });
 });
 
+// Télécharger une pièce jointe depuis la DB
+app.get('/api/demandes/:id/pj/:index', requireAuth, async (req, res) => {
+  const { rows } = await pool.query('SELECT pieces_jointes FROM demandes WHERE id = $1', [req.params.id]);
+  if (!rows.length) return res.status(404).json({ erreur: 'Demande introuvable.' });
+  const pj = (rows[0].pieces_jointes || [])[parseInt(req.params.index)];
+  if (!pj || !pj.data) return res.status(404).json({ erreur: 'Fichier introuvable.' });
+  const base64 = pj.data.replace(/^data:[^;]+;base64,/, '');
+  const mimeMatch = pj.data.match(/^data:([^;]+);base64,/);
+  const mime = mimeMatch ? mimeMatch[1] : 'application/octet-stream';
+  const buf = Buffer.from(base64, 'base64');
+  res.setHeader('Content-Type', mime);
+  res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(pj.nom)}"`);
+  res.send(buf);
+});
+
 // ─────────────────────────────────────────
 // SUPERVISEUR
 // ─────────────────────────────────────────
