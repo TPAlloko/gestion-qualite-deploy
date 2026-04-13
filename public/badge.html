@@ -479,13 +479,15 @@ function afficherAgents(liste) {
   }
   div.innerHTML = '';
 
-  const bo = liste.filter(a => a.service === 'Back Office');
-  const cc = liste.filter(a => a.service === 'Call Center');
-  const autres = liste.filter(a => a.service !== 'Back Office' && a.service !== 'Call Center');
+  const sup    = liste.filter(a => a.service === 'Superviseur');
+  const cc     = liste.filter(a => a.service === 'Call Center');
+  const bo     = liste.filter(a => a.service === 'Back Office');
+  const autres = liste.filter(a => !['Superviseur','Call Center','Back Office'].includes(a.service));
   const groupes = [];
-  if (bo.length)     groupes.push({ label:'🏢 Back Office', liste: bo, cc: false });
-  if (cc.length)     groupes.push({ label:'📞 Call Center', liste: cc, cc: true });
-  if (autres.length) groupes.push({ label:'Autres', liste: autres, cc: false });
+  if (sup.length)    groupes.push({ label:'👔 Superviseurs',  liste: sup,    cc: false });
+  if (cc.length)     groupes.push({ label:'📞 Call Center',   liste: cc,     cc: true  });
+  if (bo.length)     groupes.push({ label:'🏢 Back Office',   liste: bo,     cc: false });
+  if (autres.length) groupes.push({ label:'Autres',           liste: autres, cc: false });
 
   groupes.forEach(groupe => {
     const titre = document.createElement('div');
