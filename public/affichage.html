@@ -58,14 +58,6 @@
   }
   .progress-bar.urgent { background:linear-gradient(90deg,#e74c3c,#f39c12); }
 
-  .refresh-badge {
-    display:inline-block; background:rgba(39,174,96,0.2);
-    border:1px solid rgba(39,174,96,0.4); color:#2ecc71;
-    border-radius:20px; padding:4px 14px; font-size:0.78rem; font-weight:600;
-    animation:fadeIn 0.5s ease; margin-top:-8px;
-  }
-  @keyframes fadeIn { from{opacity:0;transform:scale(0.9)} to{opacity:1;transform:scale(1)} }
-
   .heure {
     font-size:3rem; font-weight:700; font-variant-numeric:tabular-nums;
     letter-spacing:2px; color:#7ec8e3;
@@ -99,19 +91,6 @@
     <div id="qrcode"></div>
   </div>
 
-  <div id="refresh-badge" style="display:none">
-    <span class="refresh-badge">✓ QR Code renouvelé</span>
-  </div>
-
-  <!-- Compte à rebours -->
-  <div class="countdown-box">
-    <div class="countdown-label">Renouvellement du QR Code dans</div>
-    <div class="countdown-timer" id="countdown">2:00</div>
-  </div>
-  <div class="progress-bar-wrapper">
-    <div class="progress-bar" id="progress-bar" style="width:100%"></div>
-  </div>
-
   <div class="steps">
     <div class="step-item"><div class="step-num">📷</div><div class="step-txt">Ouvrez l'appareil photo</div></div>
     <div class="step-item"><div class="step-num">🔍</div><div class="step-txt">Scannez le QR Code</div></div>
@@ -132,74 +111,23 @@ function majHeure() {
 }
 setInterval(majHeure, 1000); majHeure();
 
-// ── QR Code dynamique ──
-let currentUrl = null;
-let qrInstance = null;
-let intervalMs = 120000;
-let remainingMs = 120000;
-let isFirstLoad = true;
-
-async function chargerQRToken() {
+// ── QR Code fixe ──
+async function genererQR() {
   try {
-    const resp = await fetch('/api/qr-token');
-    const data = await resp.json();
-
-    remainingMs = data.remainingMs;
-    intervalMs  = data.intervalMs;
-
-    if (data.url !== currentUrl) {
-      currentUrl = data.url;
-      regenererQR(data.url);
-      if (!isFirstLoad) afficherBadgeRefresh();
-      isFirstLoad = false;
-    }
+    const resp = await fetch('/api/infos');
+    const { url } = await resp.json();
+    new QRCode(document.getElementById('qrcode'), {
+      text: url,
+      width: 260, height: 260,
+      colorDark:  '#0d1f2d',
+      colorLight: '#ffffff',
+      correctLevel: QRCode.CorrectLevel.H
+    });
   } catch(e) {
-    console.error('Erreur chargement QR token', e);
+    document.getElementById('qrcode').textContent = 'Erreur de connexion';
   }
 }
-
-function regenererQR(url) {
-  const el = document.getElementById('qrcode');
-  el.innerHTML = '';
-  qrInstance = new QRCode(el, {
-    text: url,
-    width: 260, height: 260,
-    colorDark:  '#0d1f2d',
-    colorLight: '#ffffff',
-    correctLevel: QRCode.CorrectLevel.H
-  });
-}
-
-function afficherBadgeRefresh() {
-  const badge = document.getElementById('refresh-badge');
-  badge.style.display = 'block';
-  setTimeout(() => { badge.style.display = 'none'; }, 3000);
-}
-
-// ── Compte à rebours ──
-function majCountdown() {
-  remainingMs = Math.max(0, remainingMs - 1000);
-
-  const totalSec   = Math.ceil(remainingMs / 1000);
-  const min = Math.floor(totalSec / 60);
-  const sec = totalSec % 60;
-  document.getElementById('countdown').textContent =
-    `${min}:${sec.toString().padStart(2, '0')}`;
-
-  const pct = (remainingMs / intervalMs) * 100;
-  const bar = document.getElementById('progress-bar');
-  bar.style.width = pct + '%';
-  bar.className   = 'progress-bar' + (pct < 20 ? ' urgent' : '');
-
-  // Recharger le token quand il est sur le point d'expirer
-  if (remainingMs <= 1000) chargerQRToken();
-}
-
-// Démarrage
-chargerQRToken();
-setInterval(majCountdown, 1000);
-// Vérification périodique (au cas où le serveur a régénéré le token)
-setInterval(chargerQRToken, 15000);
+genererQR();
 </script>
 </body>
 </html>

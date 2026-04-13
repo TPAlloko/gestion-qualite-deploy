@@ -366,22 +366,6 @@ let typeSelectionne  = null;   // 'entree' ou 'sortie'
 let photoBase64 = null;        // photo capturée
 let cameraStream = null;       // flux caméra
 
-// Récupérer le token QR depuis l'URL
-const qrToken = new URLSearchParams(window.location.search).get('t');
-
-// Vérification immédiate : si pas de token, bloquer l'accès
-if (!qrToken) {
-  document.body.innerHTML = `
-    <div style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;
-      background:linear-gradient(160deg,#0d1f2d 0%,#1A5676 100%);color:white;padding:24px;text-align:center;
-      font-family:'Segoe UI',sans-serif;">
-      <div style="font-size:4rem;margin-bottom:16px;">🔒</div>
-      <h2 style="font-size:1.4rem;font-weight:800;margin-bottom:10px;">Accès refusé</h2>
-      <p style="opacity:0.65;font-size:0.9rem;max-width:300px;line-height:1.6;">
-        Vous devez scanner le QR Code affiché <strong>au bureau</strong> pour accéder au badgeage.
-      </p>
-    </div>`;
-}
 
 // ── Géolocalisation ──
 let geoLat = null, geoLng = null;
@@ -420,7 +404,7 @@ function demanderGeo() {
   );
 }
 
-if (qrToken) demanderGeo();
+demanderGeo();
 
 // ── Horloge ──
 function majHeure() {
@@ -657,7 +641,6 @@ async function badger(type) {
         agentId: agentSelectionne.id,
         type,
         photo: photoBase64,
-        qrToken,
         lat: geoLat,
         lng: geoLng
       })
@@ -667,12 +650,6 @@ async function badger(type) {
 
     const nomAffiche = agentSelectionne.nom_complet || `${agentSelectionne.prenom} ${agentSelectionne.nom}`;
 
-    if (data.expired) {
-      afficherResultat('🔒', nomAffiche,
-        'QR Code expiré. Retournez au bureau et scannez le nouveau QR Code affiché à l\'écran.',
-        new Date().toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}), false);
-      return;
-    }
     if (data.geoRequired || data.geoFailed) {
       afficherResultat('📍', nomAffiche,
         data.erreur,
