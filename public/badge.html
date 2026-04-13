@@ -188,8 +188,20 @@
   .btn-type .btn-icon { font-size:2rem; }
   .btn-entree { background:rgba(39,174,96,0.2); border-color:rgba(39,174,96,0.4); }
   .btn-entree:hover { background:rgba(39,174,96,0.4); border-color:#27ae60; }
+  .btn-entree.selected { background:rgba(39,174,96,0.6); border-color:#27ae60; box-shadow:0 0 0 3px rgba(39,174,96,0.3); transform:scale(1.03); }
   .btn-sortie  { background:rgba(231,76,60,0.2); border-color:rgba(231,76,60,0.4); }
   .btn-sortie:hover  { background:rgba(231,76,60,0.4); border-color:#e74c3c; }
+  .btn-sortie.selected  { background:rgba(231,76,60,0.6); border-color:#e74c3c; box-shadow:0 0 0 3px rgba(231,76,60,0.3); transform:scale(1.03); }
+
+  .btn-confirmer {
+    width:100%; margin-top:14px; padding:15px; border-radius:12px; border:none;
+    background:rgba(255,255,255,0.15); color:rgba(255,255,255,0.4);
+    font-size:1rem; font-weight:700; cursor:not-allowed; transition:all 0.25s;
+  }
+  .btn-confirmer.actif {
+    background:white; color:#0d1f2d; cursor:pointer;
+  }
+  .btn-confirmer.actif:hover { opacity:0.9; }
 
   .btn-back {
     width:100%; padding:10px; border-radius:10px;
@@ -286,16 +298,19 @@
     </div>
 
     <div class="type-buttons">
-      <button class="btn-type btn-entree" onclick="choisirType('entree')">
+      <button class="btn-type btn-entree" id="btn-entree" onclick="selectionnerType('entree')">
         <span class="btn-icon">🟢</span>
         Arrivée
       </button>
-      <button class="btn-type btn-sortie" onclick="choisirType('sortie')">
+      <button class="btn-type btn-sortie" id="btn-sortie" onclick="selectionnerType('sortie')">
         <span class="btn-icon">🔴</span>
         Départ
       </button>
     </div>
-    <button class="btn-back" onclick="allerStep(1)" style="margin-top:16px;">← Changer de nom</button>
+    <button class="btn-confirmer" id="btn-confirmer" disabled onclick="confirmerType()">
+      Confirmer →
+    </button>
+    <button class="btn-back" onclick="allerStep(1)" style="margin-top:10px;">← Changer de nom</button>
   </div>
 
   <!-- ═══ ÉTAPE 3 : Photo ═══ -->
@@ -507,6 +522,11 @@ function selectionnerAgent(agent) {
   agentSelectionne = agent;
   typeSelectionne  = null;
   photoBase64      = null;
+  // Réinitialiser le bouton confirmer
+  const btn = document.getElementById('btn-confirmer');
+  if (btn) { btn.disabled = true; btn.classList.remove('actif'); btn.textContent = 'Confirmer →'; }
+  document.getElementById('btn-entree')?.classList.remove('selected');
+  document.getElementById('btn-sortie')?.classList.remove('selected');
   const nomAffiche = agent.nom_complet || `${agent.prenom} ${agent.nom}`;
   const initiales  = nomAffiche.split(' ').filter(w=>w).map(w=>w[0]).slice(0,2).join('').toUpperCase();
   // Pré-remplir step 2 (choix type)
@@ -517,16 +537,21 @@ function selectionnerAgent(agent) {
   allerStep(2);
 }
 
-function choisirType(type) {
+function selectionnerType(type) {
   typeSelectionne = type;
-  // Feedback visuel sur les boutons
-  document.querySelectorAll('.btn-type').forEach(b => b.style.opacity = '0.5');
-  event.currentTarget.style.opacity = '1';
-  event.currentTarget.style.transform = 'scale(1.04)';
-  setTimeout(() => {
-    document.querySelectorAll('.btn-type').forEach(b => { b.style.opacity = '1'; b.style.transform = ''; });
-    allerStep(3);
-  }, 300);
+  // Mise en évidence du bouton sélectionné
+  document.getElementById('btn-entree').classList.toggle('selected', type === 'entree');
+  document.getElementById('btn-sortie').classList.toggle('selected', type === 'sortie');
+  // Activer le bouton Confirmer
+  const btn = document.getElementById('btn-confirmer');
+  btn.disabled = false;
+  btn.classList.add('actif');
+  btn.textContent = type === 'entree' ? '✓ Confirmer Arrivée →' : '✓ Confirmer Départ →';
+}
+
+function confirmerType() {
+  if (!typeSelectionne) return;
+  allerStep(3);
 }
 
 // ══════════════════════════════════════════
