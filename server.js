@@ -8,6 +8,20 @@ const crypto   = require('crypto');
 const { Pool } = require('pg');
 const pgSession = require('connect-pg-simple')(session);
 
+// ── Géolocalisation bureau ──
+const BUREAU_LAT    =  5.344125;
+const BUREAU_LNG    = -4.010596;
+const BUREAU_RAYON  = 150; // mètres
+
+function distanceMetres(lat1, lng1, lat2, lng2) {
+  const R = 6371000;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat/2)**2 +
+            Math.cos(lat1 * Math.PI/180) * Math.cos(lat2 * Math.PI/180) * Math.sin(dLng/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 // ── QR Code dynamique ──
 const QR_INTERVAL_MS = 4 * 60 * 1000; // Renouvellement toutes les 4 minutes
 let qrState = { current: null, previous: null, generatedAt: null };
@@ -267,6 +281,23 @@ app.post('/api/badger', async (req, res) => {
     return res.status(403).json({
       erreur: 'QR Code expiré ou invalide. Scannez le QR Code affiché au bureau.',
       expired: true
+    });
+  }
+
+  // Validation géolocalisation
+  const { lat, lng } = req.body;
+  if (lat == null || lng == null) {
+    return res.status(403).json({
+      erreur: 'Localisation requise. Activez le GPS et autorisez la localisation.',
+      geoRequired: true
+    });
+  }
+  const distance = distanceMetres(parseFloat(lat), parseFloat(lng), BUREAU_LAT, BUREAU_LNG);
+  if (distance > BUREAU_RAYON) {
+    return res.status(403).json({
+      erreur: `Vous devez être au bureau pour badger (vous êtes à ${Math.round(distance)} m).`,
+      geoFailed: true,
+      distance: Math.round(distance)
     });
   }
 

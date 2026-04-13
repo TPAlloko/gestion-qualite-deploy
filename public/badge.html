@@ -383,6 +383,45 @@ if (!qrToken) {
     </div>`;
 }
 
+// ── Géolocalisation ──
+let geoLat = null, geoLng = null;
+let geoReady = false;
+
+function afficherErreurGeo(msg) {
+  document.body.innerHTML = `
+    <div style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;
+      background:linear-gradient(160deg,#0d1f2d 0%,#1A5676 100%);color:white;padding:24px;text-align:center;
+      font-family:'Segoe UI',sans-serif;">
+      <div style="font-size:4rem;margin-bottom:16px;">📍</div>
+      <h2 style="font-size:1.4rem;font-weight:800;margin-bottom:10px;">Localisation requise</h2>
+      <p style="opacity:0.65;font-size:0.9rem;max-width:300px;line-height:1.6;">${msg}</p>
+      <button onclick="location.reload()" style="margin-top:20px;padding:12px 24px;border-radius:12px;
+        border:none;background:white;color:#0d1f2d;font-weight:700;cursor:pointer;font-size:0.9rem;">
+        Réessayer
+      </button>
+    </div>`;
+}
+
+function demanderGeo() {
+  if (!navigator.geolocation) {
+    afficherErreurGeo('Votre appareil ne supporte pas la géolocalisation.');
+    return;
+  }
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      geoLat = pos.coords.latitude;
+      geoLng = pos.coords.longitude;
+      geoReady = true;
+    },
+    err => {
+      afficherErreurGeo('Activez le GPS et autorisez la localisation pour badger.');
+    },
+    { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+  );
+}
+
+if (qrToken) demanderGeo();
+
 // ── Horloge ──
 function majHeure() {
   const now = new Date();
@@ -600,6 +639,17 @@ async function badger(type) {
   document.querySelectorAll('.btn-type').forEach(b => b.style.opacity = '0.5');
 
   try {
+    // Rafraîchir les coordonnées GPS juste avant le badgeage
+    if (navigator.geolocation) {
+      await new Promise(resolve => {
+        navigator.geolocation.getCurrentPosition(
+          pos => { geoLat = pos.coords.latitude; geoLng = pos.coords.longitude; resolve(); },
+          () => resolve(),
+          { enableHighAccuracy: true, timeout: 5000, maximumAge: 30000 }
+        );
+      });
+    }
+
     const resp = await fetch('/api/badger', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -607,7 +657,9 @@ async function badger(type) {
         agentId: agentSelectionne.id,
         type,
         photo: photoBase64,
-        qrToken
+        qrToken,
+        lat: geoLat,
+        lng: geoLng
       })
     });
     const data = await resp.json();
@@ -618,6 +670,12 @@ async function badger(type) {
     if (data.expired) {
       afficherResultat('🔒', nomAffiche,
         'QR Code expiré. Retournez au bureau et scannez le nouveau QR Code affiché à l\'écran.',
+        new Date().toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}), false);
+      return;
+    }
+    if (data.geoRequired || data.geoFailed) {
+      afficherResultat('📍', nomAffiche,
+        data.erreur,
         new Date().toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}), false);
       return;
     }
