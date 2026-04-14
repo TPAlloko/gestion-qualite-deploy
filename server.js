@@ -219,20 +219,6 @@ app.get('/api/pointages/today', async (req, res) => {
   res.json(rows.map(rowToPointage));
 });
 
-// ── Route temporaire : recalcule le flag retard selon HEURE_DEBUT ──
-app.post('/api/admin/fix-retard', requireAuth, requireAdmin, async (req, res) => {
-  const date = req.body.date || new Date().toLocaleDateString('fr-FR');
-  const result = await pool.query(
-    `UPDATE pointages
-     SET retard = (
-       CAST(SPLIT_PART(heure,':',1) AS INTEGER) > $2
-       OR (CAST(SPLIT_PART(heure,':',1) AS INTEGER) = $2 AND CAST(SPLIT_PART(heure,':',2) AS INTEGER) > 0)
-     )
-     WHERE date = $1 AND type = 'entree'`,
-    [date, HEURE_DEBUT]
-  );
-  res.json({ ok: true, updated: result.rowCount, date, heure_debut: HEURE_DEBUT });
-});
 
 app.delete('/api/pointages/:id', requireAuth, requireAdmin, async (req, res) => {
   await pool.query('DELETE FROM pointages WHERE id = $1', [req.params.id]);
@@ -575,10 +561,16 @@ io.on('connection', (socket) => {
 
 // ── Helpers de conversion lignes DB → objets ──
 function rowToPointage(r) {
+  // Recalcul dynamique du retard selon HEURE_DEBUT (ignore la valeur stockée)
+  let retard = false;
+  if (r.type === 'entree' && r.heure) {
+    const [h, m] = r.heure.split(':').map(Number);
+    retard = h > HEURE_DEBUT || (h === HEURE_DEBUT && m > 0);
+  }
   return {
     id: r.id, agentId: r.agent_id, nom: r.nom, prenom: r.prenom,
     nom_complet: r.nom_complet, poste: r.poste, service: r.service,
-    date: r.date, heure: r.heure, type: r.type, retard: r.retard,
+    date: r.date, heure: r.heure, type: r.type, retard,
     photo: r.photo, source: r.source, timestamp: r.timestamp
   };
 }
