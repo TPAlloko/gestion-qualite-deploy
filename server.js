@@ -219,6 +219,21 @@ app.get('/api/pointages/today', async (req, res) => {
   res.json(rows.map(rowToPointage));
 });
 
+// ── Route temporaire : recalcule le flag retard selon HEURE_DEBUT ──
+app.post('/api/admin/fix-retard', requireAuth, requireAdmin, async (req, res) => {
+  const date = req.body.date || new Date().toLocaleDateString('fr-FR');
+  const result = await pool.query(
+    `UPDATE pointages
+     SET retard = (
+       CAST(SPLIT_PART(heure,':',1) AS INTEGER) > $2
+       OR (CAST(SPLIT_PART(heure,':',1) AS INTEGER) = $2 AND CAST(SPLIT_PART(heure,':',2) AS INTEGER) > 0)
+     )
+     WHERE date = $1 AND type = 'entree'`,
+    [date, HEURE_DEBUT]
+  );
+  res.json({ ok: true, updated: result.rowCount, date, heure_debut: HEURE_DEBUT });
+});
+
 app.delete('/api/pointages/:id', requireAuth, requireAdmin, async (req, res) => {
   await pool.query('DELETE FROM pointages WHERE id = $1', [req.params.id]);
   io.emit('stats-update');
