@@ -255,7 +255,7 @@
     <div class="kpi"><div class="kpi-label">Total agents</div><div class="kpi-val" id="kpi-total">—</div><div class="kpi-sub">Inscrits</div></div>
     <div class="kpi vert"><div class="kpi-label">Présents</div><div class="kpi-val" id="kpi-presents">—</div><div class="kpi-sub">Badgés aujourd'hui</div></div>
     <div class="kpi rouge"><div class="kpi-label">Absents</div><div class="kpi-val" id="kpi-absents">—</div><div class="kpi-sub">Non badgés</div></div>
-    <div class="kpi orange"><div class="kpi-label">Retards</div><div class="kpi-val" id="kpi-retards">—</div><div class="kpi-sub">Après 8h00</div></div>
+    <div class="kpi orange"><div class="kpi-label">Retards</div><div class="kpi-val" id="kpi-retards">—</div><div class="kpi-sub">Après 9h00</div></div>
   </div>
 
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
@@ -607,6 +607,12 @@
 <script>
 const socket = io();
 let agentsCache = [];
+const HEURE_DEBUT = 9; // 09h00 — seuil de retard
+function isRetard(p) {
+  if (p.type !== 'entree' || !p.heure) return false;
+  const [h, m] = p.heure.split(':').map(Number);
+  return h > HEURE_DEBUT || (h === HEURE_DEBUT && m > 0);
+}
 let pointagesCache = [];
 let histPage = 0; const HIST_PAGE_SIZE = 30;
 
@@ -652,7 +658,7 @@ async function chargerFlux() {
       ${photoHtml}
       <div class="flux-info">
         <div class="flux-nom">${nomAffiche}</div>
-        <div class="flux-detail">${p.service||p.poste} ${p.retard?'• <span style="color:#e67e22">⚠️ Retard</span>':''}</div>
+        <div class="flux-detail">${p.service||p.poste} ${isRetard(p)?'• <span style="color:#e67e22">⚠️ Retard</span>':''}</div>
       </div>
       <div style="text-align:right;">
         <div class="flux-heure">${p.heure}</div>
@@ -693,7 +699,7 @@ async function chargerPresences() {
       const sortie = pts.find(p => p.agentId === agent.id && p.type === 'sortie');
       let statut = 'absent', label = 'Absent', badge = 'absent';
       if (entree) {
-        if (entree.retard) { statut='retard'; label='Retard'; badge='retard'; }
+        if (isRetard(entree)) { statut='retard'; label='Retard'; badge='retard'; }
         else { statut='present'; label='Présent'; badge='present'; }
       }
       const nomAffiche = agent.nom_complet || `${agent.prenom} ${agent.nom}`;
@@ -733,7 +739,7 @@ async function chargerTodayTable() {
       <td><div class="agent-cell">${photoHtml}<div><div class="nom">${nomAffiche}</div><div class="poste">${p.service||''}</div></div></div></td>
       <td>${p.poste}</td>
       <td><span class="badge ${p.type}">${p.type==='entree'?'🟢 Entrée':'🔴 Sortie'}</span></td>
-      <td>${p.retard?'<span class="badge retard">⚠️ Retard</span>':'<span style="color:#ccc;font-size:0.78rem;">—</span>'}</td>
+      <td>${isRetard(p)?'<span class="badge retard">⚠️ Retard</span>':'<span style="color:#ccc;font-size:0.78rem;">—</span>'}</td>
       <td><button class="btn btn-danger btn-sm" onclick="supprimerPointage('${p.id}')">🗑️</button></td>
     </tr>`;
   });
@@ -771,7 +777,7 @@ async function chargerHistorique() {
       <td><div class="agent-cell">${photoHtml}<div><div class="nom">${nomAffiche}</div></div></div></td>
       <td>${p.poste}</td>
       <td><span class="badge ${p.type}">${p.type==='entree'?'🟢 Entrée':'🔴 Sortie'}</span></td>
-      <td>${p.retard?'<span class="badge retard">⚠️</span>':'—'}</td>
+      <td>${isRetard(p)?'<span class="badge retard">⚠️</span>':'—'}</td>
       <td><button class="btn btn-danger btn-sm" onclick="supprimerPointage('${p.id}')">🗑️</button></td>
     </tr>`;
   });
@@ -904,7 +910,7 @@ async function chargerRecap() {
   tbody.innerHTML = '';
   agents.forEach(a => {
     const entrees = pts.filter(p => p.agentId === a.id && p.type === 'entree');
-    const retards = entrees.filter(p => p.retard).length;
+    const retards = entrees.filter(p => isRetard(p)).length;
     const presences = entrees.length;
     const absences = Math.max(0, nbJ - presences);
     const taux = ((presences/nbJ)*100).toFixed(1);
@@ -927,14 +933,14 @@ async function exporterExcel() {
   ]);
   const wb = XLSX.utils.book_new();
   const rows = [['Date','Heure','ID','Nom','Prénom','Poste','Service','Type','Retard']];
-  pts.forEach(p => rows.push([p.date,p.heure,p.agentId,p.nom,p.prenom,p.poste,p.service||'',p.type==='entree'?'Entrée':'Sortie',p.retard?'Oui':'Non']));
+  pts.forEach(p => rows.push([p.date,p.heure,p.agentId,p.nom,p.prenom,p.poste,p.service||'',p.type==='entree'?'Entrée':'Sortie',isRetard(p)?'Oui':'Non']));
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), 'Pointages');
   const jours = new Set(pts.map(p=>p.date));
   const nbJ = jours.size || 1;
   const recap = [['ID','Nom','Prénom','Poste','Présences','Absences','Retards','Taux %']];
   agents.forEach(a => {
     const entrees = pts.filter(p => p.agentId===a.id && p.type==='entree');
-    recap.push([a.id,a.nom,a.prenom,a.poste,entrees.length,Math.max(0,nbJ-entrees.length),entrees.filter(p=>p.retard).length,((entrees.length/nbJ)*100).toFixed(1)+'%']);
+    recap.push([a.id,a.nom,a.prenom,a.poste,entrees.length,Math.max(0,nbJ-entrees.length),entrees.filter(p=>isRetard(p)).length,((entrees.length/nbJ)*100).toFixed(1)+'%']);
   });
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(recap), 'Récapitulatif');
   XLSX.writeFile(wb, `Rapport_Qualite_${new Date().toISOString().split('T')[0]}.xlsx`);
@@ -943,7 +949,7 @@ async function exporterExcel() {
 async function exporterCSV() {
   const pts = await fetch('/api/pointages').then(r=>r.json());
   let csv = 'Date,Heure,ID,Nom,Prénom,Poste,Type,Retard\n';
-  pts.forEach(p => csv += `${p.date},${p.heure},${p.agentId},${p.nom},${p.prenom},${p.poste},${p.type},${p.retard?'Oui':'Non'}\n`);
+  pts.forEach(p => csv += `${p.date},${p.heure},${p.agentId},${p.nom},${p.prenom},${p.poste},${p.type},${isRetard(p)?'Oui':'Non'}\n`);
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob(['\ufeff'+csv], {type:'text/csv;charset=utf-8'}));
   a.download = `Pointage_${new Date().toISOString().split('T')[0]}.csv`;
@@ -973,7 +979,7 @@ function afficherNotif(p) {
     ${photoHtml}
     <div>
       <div class="notif-nom">${nomAffiche}</div>
-      <div class="notif-detail">${p.type==='entree'?'Arrivée':'Départ'} • ${p.heure}${p.retard?' • ⚠️ Retard':''}</div>
+      <div class="notif-detail">${p.type==='entree'?'Arrivée':'Départ'} • ${p.heure}${isRetard(p)?' • ⚠️ Retard':''}</div>
     </div>`;
   document.getElementById('notif-container').prepend(div);
   setTimeout(() => div.remove(), 7000);
