@@ -380,6 +380,7 @@ let agentSelectionne = null;
 let typeSelectionne  = null;   // 'entree' ou 'sortie'
 let photoBase64 = null;        // photo capturée
 let cameraStream = null;       // flux caméra
+let badgageEnCours = false;    // verrou anti-double-envoi
 
 
 // ── Géolocalisation ──
@@ -645,6 +646,12 @@ function passerSansPhoto() {
 // ══════════════════════════════════════════
 async function badger(type) {
   if (!agentSelectionne || !type) return;
+  if (badgageEnCours) return;   // Protection anti-double-envoi
+  badgageEnCours = true;
+
+  // Désactiver le bouton de validation immédiatement
+  const btnValider = document.getElementById('btn-valider-photo');
+  if (btnValider) { btnValider.disabled = true; btnValider.style.opacity = '0.5'; }
 
   // Feedback visuel immédiat
   document.querySelectorAll('.btn-type').forEach(b => b.style.opacity = '0.5');
@@ -699,7 +706,10 @@ async function badger(type) {
     }
   } catch(e) {
     document.querySelectorAll('.btn-type').forEach(b => b.style.opacity = '1');
+    if (btnValider) { btnValider.disabled = false; btnValider.style.opacity = '1'; }
     alert('Erreur de connexion. Vérifiez votre connexion WiFi.');
+  } finally {
+    badgageEnCours = false;
   }
 }
 
@@ -741,6 +751,7 @@ function recommencer() {
   agentSelectionne = null;
   typeSelectionne  = null;
   photoBase64      = null;
+  badgageEnCours   = false;
   document.getElementById('search').value = '';
   afficherAgents(agents);
   arreterCamera();

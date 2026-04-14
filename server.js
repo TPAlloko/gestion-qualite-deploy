@@ -12,6 +12,10 @@ const BUREAU_LAT   =  5.344125;
 const BUREAU_LNG   = -4.010596;
 const BUREAU_RAYON = 150; // mètres
 
+// ── Horaires de travail ──
+const HEURE_DEBUT = 9;  // 09h00 — retard si arrivée après
+const HEURE_FIN   = 17; // 17h00 — départ prévu
+
 function distanceMetres(lat1, lng1, lat2, lng2) {
   const R = 6371000;
   const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -232,7 +236,7 @@ app.get('/api/stats', async (req, res) => {
   const retards  = pointages.filter(p => {
     if (p.type !== 'entree') return false;
     const [h, m] = p.heure.split(':').map(Number);
-    return h > 8 || (h === 8 && m > 0);
+    return h > HEURE_DEBUT || (h === HEURE_DEBUT && m > 0);
   }).length;
   const { rows: derniers } = await pool.query(
     'SELECT * FROM pointages WHERE date = $1 ORDER BY timestamp DESC LIMIT 5', [today]
@@ -288,8 +292,22 @@ app.post('/api/badger', async (req, res) => {
     return res.json({ ok: false, message: "Vous avez déjà badgé entrée et sortie aujourd'hui." });
 
   const type = aEntree ? 'sortie' : 'entree';
+
+  // Protection anti-doublon : délai minimum de 60 s entre entrée et sortie
+  if (type === 'sortie') {
+    const derniereEntree = duJour.find(p => p.type === 'entree');
+    if (derniereEntree) {
+      const diffSec = (Date.now() - new Date(derniereEntree.timestamp).getTime()) / 1000;
+      if (diffSec < 60) {
+        return res.status(400).json({
+          ok: false,
+          message: 'Votre arrivée vient d\'être enregistrée. Réessayez dans quelques instants.'
+        });
+      }
+    }
+  }
   const [h, m] = heure.split(':').map(Number);
-  const retard = type === 'entree' && (h > 8 || (h === 8 && m > 0));
+  const retard = type === 'entree' && (h > HEURE_DEBUT || (h === HEURE_DEBUT && m > 0));
   const pointageId = Date.now().toString();
 
   // Photo stockée en base64 dans la DB
@@ -467,7 +485,7 @@ app.get('/api/superviseur/stats', requireSuperviseur, async (req, res) => {
   const retards  = pointages.filter(p => {
     if (p.type !== 'entree') return false;
     const [h, m] = p.heure.split(':').map(Number);
-    return h > 8 || (h === 8 && m > 0);
+    return h > HEURE_DEBUT || (h === HEURE_DEBUT && m > 0);
   }).length;
   res.json({ totalAgents: agents.length, presents: presents.size, absents: Math.max(0, agents.length - presents.size), retards });
 });
