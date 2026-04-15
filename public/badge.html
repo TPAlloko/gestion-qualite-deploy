@@ -521,22 +521,51 @@ function filtrerAgents() {
   );
 }
 
-function selectionnerAgent(agent) {
+async function selectionnerAgent(agent) {
   agentSelectionne = agent;
   typeSelectionne  = null;
   photoBase64      = null;
-  // Réinitialiser le bouton confirmer
-  const btn = document.getElementById('btn-confirmer');
-  if (btn) { btn.disabled = true; btn.classList.remove('actif'); btn.textContent = 'Confirmer →'; }
-  document.getElementById('btn-entree')?.classList.remove('selected');
-  document.getElementById('btn-sortie')?.classList.remove('selected');
+
+  // Réinitialiser les boutons
+  const btnConfirmer = document.getElementById('btn-confirmer');
+  if (btnConfirmer) { btnConfirmer.disabled = true; btnConfirmer.classList.remove('actif'); btnConfirmer.textContent = 'Confirmer →'; }
+  const btnEntree = document.getElementById('btn-entree');
+  const btnSortie = document.getElementById('btn-sortie');
+  btnEntree?.classList.remove('selected');
+  btnSortie?.classList.remove('selected');
+  if (btnEntree) { btnEntree.disabled = false; btnEntree.style.opacity = '1'; }
+  if (btnSortie) { btnSortie.disabled = false; btnSortie.style.opacity = '1'; }
+
   const nomAffiche = agent.nom_complet || `${agent.prenom} ${agent.nom}`;
   const initiales  = nomAffiche.split(' ').filter(w=>w).map(w=>w[0]).slice(0,2).join('').toUpperCase();
-  // Pré-remplir step 2 (choix type)
   document.getElementById('conf-nom').textContent    = nomAffiche;
   document.getElementById('conf-poste').textContent  = agent.poste + ' — ' + (agent.service || '');
   document.getElementById('conf-initiales').textContent = initiales;
   document.getElementById('photo-agent-nom').textContent = nomAffiche;
+
+  // Vérifier le statut de badgeage du jour
+  try {
+    const resp = await fetch(`/api/statut-jour/${agent.id}`);
+    const statut = await resp.json();
+
+    if (statut.aSortie) {
+      // Arrivée ET départ déjà faits → journée terminée
+      afficherResultat('✅', nomAffiche,
+        'Vous avez déjà effectué votre arrivée et votre départ aujourd\'hui.',
+        new Date().toLocaleTimeString('fr-FR', {hour:'2-digit', minute:'2-digit'}), false);
+      return;
+    }
+
+    if (statut.aEntree) {
+      // Arrivée déjà faite → seul le départ est possible
+      if (btnEntree) { btnEntree.disabled = true; btnEntree.style.opacity = '0.35'; }
+      selectionnerType('sortie'); // pré-sélectionner départ
+    }
+    // Sinon : les deux boutons restent actifs
+  } catch(e) {
+    // En cas d'erreur réseau, on laisse l'agent choisir librement
+  }
+
   allerStep(2);
 }
 

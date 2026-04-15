@@ -106,6 +106,17 @@ async function initDB() {
     CREATE INDEX IF NOT EXISTS IDX_session_expire ON session (expire);
   `);
 
+  // Synchroniser les noms dans les pointages si un agent a été renommé
+  await pool.query(`
+    UPDATE pointages p
+    SET prenom      = a.prenom,
+        nom         = a.nom,
+        nom_complet = a.nom_complet
+    FROM agents a
+    WHERE p.agent_id = a.id
+      AND (p.prenom != a.prenom OR p.nom != a.nom)
+  `);
+
   // Créer le compte admin par défaut s'il n'existe pas
   const { rows } = await pool.query("SELECT id FROM users WHERE login = 'admin'");
   if (rows.length === 0) {
@@ -252,6 +263,19 @@ app.get('/api/stats', async (req, res) => {
   });
 });
 
+// ── Statut du jour pour un agent ──
+app.get('/api/statut-jour/:agentId', async (req, res) => {
+  const today = new Date().toLocaleDateString('fr-FR');
+  const { rows } = await pool.query(
+    'SELECT type FROM pointages WHERE agent_id = $1 AND date = $2',
+    [req.params.agentId.toUpperCase(), today]
+  );
+  res.json({
+    aEntree: rows.some(p => p.type === 'entree'),
+    aSortie: rows.some(p => p.type === 'sortie')
+  });
+});
+
 // ── Badgeage ──
 app.post('/api/badger', async (req, res) => {
   const { agentId, photo, source } = req.body;
@@ -289,9 +313,11 @@ app.post('/api/badger', async (req, res) => {
   const aEntree = duJour.some(p => p.type === 'entree');
   const aSortie = duJour.some(p => p.type === 'sortie');
 
-  if (aEntree && aSortie)
-    return res.json({ ok: false, message: "Vous avez déjà badgé entrée et sortie aujourd'hui." });
+  // Départ déjà enregistré → journée terminée, aucun badgeage possible
+  if (aSortie)
+    return res.json({ ok: false, message: "Vous avez déjà enregistré votre départ aujourd'hui. Bonne soirée !" });
 
+  // Arrivée déjà enregistrée → prochain badge = départ uniquement
   const type = aEntree ? 'sortie' : 'entree';
 
   // Protection anti-doublon : délai minimum de 60 s entre entrée et sortie
