@@ -17,3 +17,5 @@ jobs:
         run: railway up --service web --detach
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_PROJECT_ID: 26ebae1e-601f-432d-bb86-4dfa5dfe2669
+          RAILWAY_ENVIRONMENT_ID: 4ad24723-8232-47a2-95e6-7617b4eba039
