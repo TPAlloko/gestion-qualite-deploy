@@ -560,8 +560,10 @@ async function selectionnerAgent(agent) {
       // Arrivée déjà faite → seul le départ est possible
       if (btnEntree) { btnEntree.disabled = true; btnEntree.style.opacity = '0.35'; }
       selectionnerType('sortie'); // pré-sélectionner départ
+    } else {
+      // Pas encore d'arrivée → départ impossible
+      if (btnSortie) { btnSortie.disabled = true; btnSortie.style.opacity = '0.35'; }
     }
-    // Sinon : les deux boutons restent actifs
   } catch(e) {
     // En cas d'erreur réseau, on laisse l'agent choisir librement
   }
@@ -570,6 +572,10 @@ async function selectionnerAgent(agent) {
 }
 
 function selectionnerType(type) {
+  // Ignorer si le bouton est désactivé
+  const btnCible = document.getElementById(type === 'entree' ? 'btn-entree' : 'btn-sortie');
+  if (btnCible && btnCible.disabled) return;
+
   typeSelectionne = type;
   // Mise en évidence du bouton sélectionné
   document.getElementById('btn-entree').classList.toggle('selected', type === 'entree');
