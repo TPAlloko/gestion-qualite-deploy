@@ -177,7 +177,7 @@
   .presence-card.absent  { border-color:#fad2d2; }
   .presence-card.retard  { border-color:#fde8b7; }
   .presence-info { flex:1; min-width:0; }
-  .presence-nom  { font-weight:700; font-size:0.88rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .presence-nom  { font-weight:700; font-size:0.88rem; word-break:break-word; }
   .presence-poste{ font-size:0.74rem; color:#999; }
   .presence-heure{ font-size:0.76rem; color:var(--bleu); font-weight:600; margin-top:2px; }
   .presence-status { text-align:right; flex-shrink:0; }
@@ -283,6 +283,16 @@
     </div>
   </div>
 
+  <!-- Grille filtrée (affichée au clic sur un KPI) -->
+  <div class="card" id="dashboard-filtre-card" style="display:none;margin-bottom:20px;">
+    <div class="card-header">
+      <h2 id="dashboard-filtre-titre">Agents</h2>
+      <button class="btn btn-outline btn-sm" onclick="masquerFiltresDashboard()">× Fermer</button>
+    </div>
+    <div id="dashboard-filtre-bandeau" style="display:none;align-items:center;gap:10px;padding:10px 14px;border-radius:8px;margin-bottom:14px;font-size:0.84rem;font-weight:600;"></div>
+    <div class="presence-grid" id="dashboard-presence-grid"></div>
+  </div>
+
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
     <div class="card">
       <div class="card-header">
@@ -320,15 +330,6 @@
     </div>
   </div>
 
-  <!-- Grille filtrée (affichée au clic sur un KPI) -->
-  <div class="card" id="dashboard-filtre-card" style="display:none;margin-top:20px;">
-    <div class="card-header">
-      <h2 id="dashboard-filtre-titre">Agents</h2>
-      <button class="btn btn-outline btn-sm" onclick="masquerFiltresDashboard()">× Fermer</button>
-    </div>
-    <div id="dashboard-filtre-bandeau" style="display:none;align-items:center;gap:10px;padding:10px 14px;border-radius:8px;margin-bottom:14px;font-size:0.84rem;font-weight:600;"></div>
-    <div class="presence-grid" id="dashboard-presence-grid"></div>
-  </div>
 </div>
 
 <!-- ══════════════════════════════════ -->
