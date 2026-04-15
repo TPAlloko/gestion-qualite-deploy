@@ -366,7 +366,7 @@
 <!-- ══════════════════════════════════ -->
 <div class="tab-content" id="tab-historique">
   <div class="card">
-    <div class="card-header"><h2>Historique des pointages</h2></div>
+    <div class="card-header"><h2>Historique des pointages</h2><span id="hist-count" style="font-size:0.82rem;color:#7f8c8d;"></span></div>
     <div class="filtres">
       <input type="date" id="hist-date" onchange="chargerHistorique()" />
       <select id="hist-agent" onchange="chargerHistorique()">
@@ -379,13 +379,12 @@
       </select>
       <button class="btn btn-outline btn-sm" onclick="resetHistFiltres()">Réinitialiser</button>
     </div>
-    <div class="table-wrap">
+    <div class="table-wrap" style="max-height:520px;overflow-y:auto;">
       <table>
         <thead><tr><th>#</th><th>Date</th><th>Heure</th><th>Agent</th><th>Poste</th><th>Type</th><th>Retard</th><th></th></tr></thead>
         <tbody id="tbody-hist"></tbody>
       </table>
     </div>
-    <div id="hist-pagination" style="text-align:center;margin-top:16px;"></div>
   </div>
 </div>
 
@@ -929,13 +928,15 @@ async function chargerHistorique() {
   const pts = await fetch(url).then(r=>r.json());
   const filtre = typeF ? pts.filter(p=>p.type===typeF) : pts;
   const tbody = document.getElementById('tbody-hist');
+  const countEl = document.getElementById('hist-count');
   if (!filtre.length) {
     tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#ccc;padding:24px;">Aucun résultat</td></tr>';
+    if (countEl) countEl.textContent = '';
     return;
   }
+  if (countEl) countEl.textContent = `${filtre.length} pointage${filtre.length > 1 ? 's' : ''}`;
   tbody.innerHTML = '';
-  const page = filtre.slice(0, HIST_PAGE_SIZE);
-  page.forEach((p,i) => {
+  filtre.forEach((p,i) => {
     const nomAffiche = p.nom_complet || `${p.prenom} ${p.nom}`;
     const initiales  = nomAffiche.split(' ').filter(w=>w).map(w=>w[0]).slice(0,2).join('').toUpperCase();
     const photoHtml = p.photo
