@@ -75,6 +75,11 @@
   .kpi-label { font-size:0.74rem; color:#999; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px; }
   .kpi-val   { font-size:2.4rem; font-weight:800; color:var(--texte); line-height:1; }
   .kpi-sub   { font-size:0.75rem; color:#bbb; margin-top:4px; }
+  .kpi { cursor:pointer; transition:transform 0.15s, box-shadow 0.15s; }
+  .kpi:hover { transform:translateY(-3px); box-shadow:0 6px 20px rgba(0,0,0,0.13); }
+  .kpi.actif { box-shadow:0 0 0 3px currentColor, 0 4px 16px rgba(0,0,0,0.1); transform:translateY(-2px); }
+  .kpi .kpi-hint { font-size:0.67rem; color:#bbb; margin-top:6px; display:flex; align-items:center; gap:4px; }
+  .kpi.actif .kpi-hint { color:inherit; opacity:0.7; font-weight:600; }
 
   /* ── CARD ── */
   .card {
@@ -236,7 +241,7 @@
 
 <nav>
   <button class="active" onclick="showTab('tab-dashboard')">Dashboard</button>
-  <button onclick="showTab('tab-presence')">Présences du jour</button>
+  <button onclick="filtrePresence='tous'; ['tous','presents','absents','retards'].forEach(k=>document.getElementById('kpi-card-'+k)?.classList.remove('actif')); showTab('tab-presence')">Présences du jour</button>
   <button onclick="showTab('tab-historique')">Historique</button>
   <button onclick="showTab('tab-agents')">Agents</button>
   <button onclick="showTab('tab-rapports')">Rapports & Export</button>
@@ -252,10 +257,30 @@
 <div class="tab-content active" id="tab-dashboard">
 
   <div class="kpi-grid">
-    <div class="kpi"><div class="kpi-label">Total agents</div><div class="kpi-val" id="kpi-total">—</div><div class="kpi-sub">Inscrits</div></div>
-    <div class="kpi vert"><div class="kpi-label">Présents</div><div class="kpi-val" id="kpi-presents">—</div><div class="kpi-sub">Badgés aujourd'hui</div></div>
-    <div class="kpi rouge"><div class="kpi-label">Absents</div><div class="kpi-val" id="kpi-absents">—</div><div class="kpi-sub">Non badgés</div></div>
-    <div class="kpi orange"><div class="kpi-label">Retards</div><div class="kpi-val" id="kpi-retards">—</div><div class="kpi-sub">Après 9h00</div></div>
+    <div class="kpi" id="kpi-card-tous" onclick="filtrerParStatut('tous')" title="Voir tous les agents">
+      <div class="kpi-label">Total agents</div>
+      <div class="kpi-val" id="kpi-total">—</div>
+      <div class="kpi-sub">Inscrits</div>
+      <div class="kpi-hint">↗ Voir tous</div>
+    </div>
+    <div class="kpi vert" id="kpi-card-presents" onclick="filtrerParStatut('presents')" title="Filtrer les présents">
+      <div class="kpi-label">Présents</div>
+      <div class="kpi-val" id="kpi-presents">—</div>
+      <div class="kpi-sub">Badgés aujourd'hui</div>
+      <div class="kpi-hint">↗ Filtrer</div>
+    </div>
+    <div class="kpi rouge" id="kpi-card-absents" onclick="filtrerParStatut('absents')" title="Filtrer les absents">
+      <div class="kpi-label">Absents</div>
+      <div class="kpi-val" id="kpi-absents">—</div>
+      <div class="kpi-sub">Non badgés</div>
+      <div class="kpi-hint">↗ Filtrer</div>
+    </div>
+    <div class="kpi orange" id="kpi-card-retards" onclick="filtrerParStatut('retards')" title="Filtrer les retards">
+      <div class="kpi-label">Retards</div>
+      <div class="kpi-val" id="kpi-retards">—</div>
+      <div class="kpi-sub">Après 9h00</div>
+      <div class="kpi-hint">↗ Filtrer</div>
+    </div>
   </div>
 
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
@@ -304,6 +329,10 @@
     <div class="card-header">
       <h2>Présences du jour — <span id="date-presence"></span></h2>
       <button class="btn btn-outline btn-sm" onclick="chargerPresences()">🔄 Actualiser</button>
+    </div>
+    <div id="filtre-presence-bandeau" style="display:none;align-items:center;gap:10px;padding:10px 14px;border-radius:8px;margin-bottom:14px;font-size:0.84rem;font-weight:600;">
+      <span id="filtre-presence-label"></span>
+      <button onclick="filtrerParStatut('tous')" style="margin-left:auto;padding:4px 12px;border-radius:6px;border:1px solid currentColor;background:transparent;cursor:pointer;font-size:0.78rem;font-weight:600;">× Tout afficher</button>
     </div>
     <div class="presence-grid" id="presence-grid">
       <div style="color:#ccc;padding:20px;text-align:center;">Chargement...</div>
@@ -607,6 +636,7 @@
 <script>
 const socket = io();
 let agentsCache = [];
+let filtrePresence = 'tous'; // 'tous' | 'presents' | 'absents' | 'retards'
 const HEURE_DEBUT = 9; // 09h00 — seuil de retard
 function isRetard(p) {
   if (p.type !== 'entree' || !p.heure) return false;
@@ -679,9 +709,49 @@ async function chargerPresences() {
   grid.innerHTML = '';
   if (!agents.length) { grid.innerHTML = '<div style="color:#ccc;text-align:center;padding:20px;">Aucun agent enregistré</div>'; return; }
 
+  // Calculer le statut de chaque agent
+  const statutMap = {};
+  agents.forEach(a => {
+    const entree = pts.find(p => p.agentId === a.id && p.type === 'entree');
+    const sortie = pts.find(p => p.agentId === a.id && p.type === 'sortie');
+    let statut = 'absent';
+    if (entree) statut = isRetard(entree) ? 'retard' : 'present';
+    statutMap[a.id] = { statut, entree, sortie };
+  });
+
+  // Appliquer le filtre
+  let agentsFiltres = agents;
+  if (filtrePresence === 'presents') agentsFiltres = agents.filter(a => statutMap[a.id].statut === 'present' || statutMap[a.id].statut === 'retard');
+  else if (filtrePresence === 'absents')  agentsFiltres = agents.filter(a => statutMap[a.id].statut === 'absent');
+  else if (filtrePresence === 'retards')  agentsFiltres = agents.filter(a => statutMap[a.id].statut === 'retard');
+
+  // Bandeau de filtre actif
+  const bandeau = document.getElementById('filtre-presence-bandeau');
+  const label   = document.getElementById('filtre-presence-label');
+  const filtreConfig = {
+    tous:     { show: false },
+    presents: { show: true, texte: `✅ ${agentsFiltres.length} présent(s) affiché(s)`, bg:'#d5f5e3', color:'#1e8449' },
+    absents:  { show: true, texte: `❌ ${agentsFiltres.length} absent(s) affiché(s)`,  bg:'#fde8e8', color:'#c0392b' },
+    retards:  { show: true, texte: `⚠️ ${agentsFiltres.length} retard(s) affiché(s)`, bg:'#fef3cd', color:'#d68910' }
+  };
+  const cfg = filtreConfig[filtrePresence];
+  if (cfg.show) {
+    bandeau.style.display = 'flex';
+    bandeau.style.background = cfg.bg;
+    bandeau.style.color = cfg.color;
+    label.textContent = cfg.texte;
+  } else {
+    bandeau.style.display = 'none';
+  }
+
+  if (!agentsFiltres.length) {
+    grid.innerHTML = '<div style="color:#aaa;text-align:center;padding:30px;grid-column:1/-1;">Aucun agent dans cette catégorie</div>';
+    return;
+  }
+
   // Grouper par service
-  const bo = agents.filter(a=>a.service==='Back Office');
-  const cc = agents.filter(a=>a.service==='Call Center');
+  const bo = agentsFiltres.filter(a => a.service === 'Back Office');
+  const cc = agentsFiltres.filter(a => a.service === 'Call Center');
   const grouped = [
     { label:'🏢 Back Office', liste: bo },
     { label:'📞 Call Center', liste: cc }
@@ -691,20 +761,15 @@ async function chargerPresences() {
     if (!groupe.liste.length) return;
     const titre = document.createElement('div');
     titre.style.cssText = 'grid-column:1/-1;font-size:0.8rem;font-weight:700;color:#1A5676;text-transform:uppercase;letter-spacing:1px;padding:8px 0 4px;border-bottom:2px solid #e8f0f8;margin-bottom:4px;';
-    titre.textContent = groupe.label + ` — ${groupe.liste.length} agents`;
+    titre.textContent = groupe.label + ` — ${groupe.liste.length} agent(s)`;
     grid.appendChild(titre);
 
     groupe.liste.forEach(agent => {
-      const entree = pts.find(p => p.agentId === agent.id && p.type === 'entree');
-      const sortie = pts.find(p => p.agentId === agent.id && p.type === 'sortie');
-      let statut = 'absent', label = 'Absent', badge = 'absent';
-      if (entree) {
-        if (isRetard(entree)) { statut='retard'; label='Retard'; badge='retard'; }
-        else { statut='present'; label='Présent'; badge='present'; }
-      }
+      const { statut, entree, sortie } = statutMap[agent.id];
+      const labelBadge = statut === 'present' ? 'Présent' : statut === 'retard' ? 'Retard' : 'Absent';
       const nomAffiche = agent.nom_complet || `${agent.prenom} ${agent.nom}`;
       const initiales = nomAffiche.split(' ').filter(w=>w).map(w=>w[0]).slice(0,2).join('').toUpperCase();
-      const avatarStyle = agent.service==='Call Center' ? 'background:linear-gradient(135deg,#e67e22,#f39c12);' : '';
+      const avatarStyle = agent.service === 'Call Center' ? 'background:linear-gradient(135deg,#e67e22,#f39c12);' : '';
       const div = document.createElement('div');
       div.className = `presence-card ${statut}`;
       div.innerHTML = `
@@ -712,12 +777,25 @@ async function chargerPresences() {
         <div class="presence-info">
           <div class="presence-nom">${nomAffiche}</div>
           <div class="presence-poste">${agent.poste}</div>
-          ${entree ? `<div class="presence-heure">🟢 ${entree.heure}${sortie?` → 🔴 ${sortie.heure}`:''}</div>` : ''}
+          ${entree ? `<div class="presence-heure">🟢 ${entree.heure}${sortie ? ` → 🔴 ${sortie.heure}` : ''}</div>` : ''}
         </div>
-        <div class="presence-status"><span class="badge ${badge}">${label}</span></div>`;
+        <div class="presence-status"><span class="badge ${statut}">${labelBadge}</span></div>`;
       grid.appendChild(div);
     });
   });
+}
+
+function filtrerParStatut(statut) {
+  filtrePresence = statut;
+  // Mettre à jour le KPI actif visuellement
+  ['tous','presents','absents','retards'].forEach(k => {
+    document.getElementById(`kpi-card-${k}`)?.classList.remove('actif');
+  });
+  if (statut !== 'tous') document.getElementById(`kpi-card-${statut}`)?.classList.add('actif');
+  // Naviguer vers la tab présences et appliquer le filtre
+  showTab('tab-presence');
+  chargerPresences();
+  chargerTodayTable();
 }
 
 async function chargerTodayTable() {
@@ -1083,11 +1161,14 @@ async function initSession() {
   window._userRole = me.role;
 }
 
-function showTab(id) {
+function showTab(id, navBtn) {
   document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
   document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
   document.getElementById(id).classList.add('active');
-  event.currentTarget.classList.add('active');
+  // Activer le bon bouton nav (passé en paramètre ou déduit de l'event)
+  const btn = navBtn || (typeof event !== 'undefined' && event?.currentTarget?.tagName === 'BUTTON' ? event.currentTarget : null)
+    || document.querySelector(`nav button[onclick*="${id}"]`);
+  if (btn) btn.classList.add('active');
   if (id === 'tab-presence')   { chargerPresences(); chargerTodayTable(); }
   if (id === 'tab-historique') chargerHistorique();
   if (id === 'tab-agents')     chargerAgents();
