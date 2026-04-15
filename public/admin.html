@@ -166,7 +166,7 @@
   .form-group input:focus, .form-group select:focus { outline:none; border-color:var(--bleu); }
 
   /* ── PRÉSENCE GRID ── */
-  .presence-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:14px; }
+  .presence-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:14px; }
   .presence-card {
     background:var(--blanc); border-radius:12px; padding:16px 18px;
     display:flex; align-items:center; gap:14px;
@@ -177,7 +177,7 @@
   .presence-card.absent  { border-color:#fad2d2; }
   .presence-card.retard  { border-color:#fde8b7; }
   .presence-info { flex:1; min-width:0; }
-  .presence-nom  { font-weight:700; font-size:0.88rem; word-break:break-word; }
+  .presence-nom  { font-weight:700; font-size:0.88rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .presence-poste{ font-size:0.74rem; color:#999; }
   .presence-heure{ font-size:0.76rem; color:var(--bleu); font-weight:600; margin-top:2px; }
   .presence-status { text-align:right; flex-shrink:0; }
