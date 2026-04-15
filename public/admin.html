@@ -289,7 +289,7 @@
         <h2>Flux en temps réel</h2>
         <span style="font-size:0.75rem;color:#aaa;" id="date-today"></span>
       </div>
-      <div id="flux-liste">
+      <div id="flux-liste" style="max-height:420px;overflow-y:auto;">
         <div style="text-align:center;color:#ccc;padding:24px;font-size:0.88rem;">En attente de badgeages...</div>
       </div>
     </div>
@@ -318,6 +318,16 @@
         </div>
       </div>
     </div>
+  </div>
+
+  <!-- Grille filtrée (affichée au clic sur un KPI) -->
+  <div class="card" id="dashboard-filtre-card" style="display:none;margin-top:20px;">
+    <div class="card-header">
+      <h2 id="dashboard-filtre-titre">Agents</h2>
+      <button class="btn btn-outline btn-sm" onclick="masquerFiltresDashboard()">× Fermer</button>
+    </div>
+    <div id="dashboard-filtre-bandeau" style="display:none;align-items:center;gap:10px;padding:10px 14px;border-radius:8px;margin-bottom:14px;font-size:0.84rem;font-weight:600;"></div>
+    <div class="presence-grid" id="dashboard-presence-grid"></div>
   </div>
 </div>
 
@@ -676,7 +686,7 @@ async function chargerFlux() {
     return;
   }
   div.innerHTML = '';
-  pts.slice(0,10).forEach(p => {
+  pts.forEach(p => {
     const nomAffiche = p.nom_complet || `${p.prenom} ${p.nom}`;
     const initiales = nomAffiche.split(' ').filter(w=>w).map(w=>w[0]).slice(0,2).join('').toUpperCase();
     const photoHtml = p.photo
@@ -785,17 +795,98 @@ async function chargerPresences() {
   });
 }
 
-function filtrerParStatut(statut) {
+async function filtrerParStatut(statut) {
   filtrePresence = statut;
+
   // Mettre à jour le KPI actif visuellement
   ['tous','presents','absents','retards'].forEach(k => {
     document.getElementById(`kpi-card-${k}`)?.classList.remove('actif');
   });
   if (statut !== 'tous') document.getElementById(`kpi-card-${statut}`)?.classList.add('actif');
-  // Naviguer vers la tab présences et appliquer le filtre
-  showTab('tab-presence');
-  chargerPresences();
-  chargerTodayTable();
+
+  // Charger les données
+  const [agents, pts] = await Promise.all([
+    fetch('/api/agents').then(r => r.json()),
+    fetch('/api/pointages/today').then(r => r.json())
+  ]);
+  agentsCache = agents;
+
+  // Calculer les statuts
+  const statutMap = {};
+  agents.forEach(a => {
+    const entree = pts.find(p => p.agentId === a.id && p.type === 'entree');
+    const sortie = pts.find(p => p.agentId === a.id && p.type === 'sortie');
+    let st = 'absent';
+    if (entree) st = isRetard(entree) ? 'retard' : 'present';
+    statutMap[a.id] = { statut: st, entree, sortie };
+  });
+
+  // Filtrer
+  let agentsFiltres = agents;
+  if (statut === 'presents') agentsFiltres = agents.filter(a => statutMap[a.id].statut === 'present' || statutMap[a.id].statut === 'retard');
+  else if (statut === 'absents')  agentsFiltres = agents.filter(a => statutMap[a.id].statut === 'absent');
+  else if (statut === 'retards')  agentsFiltres = agents.filter(a => statutMap[a.id].statut === 'retard');
+
+  // Masquer la carte si "tous" et aucun clic KPI spécifique
+  const card = document.getElementById('dashboard-filtre-card');
+  if (statut === 'tous') { card.style.display = 'none'; return; }
+  card.style.display = 'block';
+  card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+  // Titre et bandeau
+  const titres = { presents: '✅ Présents', absents: '❌ Absents', retards: '⚠️ Retards' };
+  const couleurs = {
+    presents: { bg:'#d5f5e3', color:'#1e8449' },
+    absents:  { bg:'#fde8e8', color:'#c0392b' },
+    retards:  { bg:'#fef3cd', color:'#d68910' }
+  };
+  document.getElementById('dashboard-filtre-titre').textContent = `${titres[statut]} — ${agentsFiltres.length} agent(s)`;
+  const bandeau = document.getElementById('dashboard-filtre-bandeau');
+  bandeau.style.display = 'flex';
+  bandeau.style.background = couleurs[statut].bg;
+  bandeau.style.color = couleurs[statut].color;
+  bandeau.textContent = `${agentsFiltres.length} agent(s) dans cette catégorie`;
+
+  // Rendre la grille
+  const grid = document.getElementById('dashboard-presence-grid');
+  grid.innerHTML = '';
+  if (!agentsFiltres.length) {
+    grid.innerHTML = '<div style="color:#aaa;text-align:center;padding:30px;grid-column:1/-1;">Aucun agent dans cette catégorie</div>';
+    return;
+  }
+  const bo = agentsFiltres.filter(a => a.service === 'Back Office');
+  const cc = agentsFiltres.filter(a => a.service === 'Call Center');
+  [{ label:'🏢 Back Office', liste: bo }, { label:'📞 Call Center', liste: cc }].forEach(groupe => {
+    if (!groupe.liste.length) return;
+    const titre = document.createElement('div');
+    titre.style.cssText = 'grid-column:1/-1;font-size:0.8rem;font-weight:700;color:#1A5676;text-transform:uppercase;letter-spacing:1px;padding:8px 0 4px;border-bottom:2px solid #e8f0f8;margin-bottom:4px;';
+    titre.textContent = groupe.label + ` — ${groupe.liste.length} agent(s)`;
+    grid.appendChild(titre);
+    groupe.liste.forEach(agent => {
+      const { statut: st, entree, sortie } = statutMap[agent.id];
+      const label = st === 'present' ? 'Présent' : st === 'retard' ? 'Retard' : 'Absent';
+      const nomAffiche = agent.nom_complet || `${agent.prenom} ${agent.nom}`;
+      const initiales = nomAffiche.split(' ').filter(w=>w).map(w=>w[0]).slice(0,2).join('').toUpperCase();
+      const avatarStyle = agent.service === 'Call Center' ? 'background:linear-gradient(135deg,#e67e22,#f39c12);' : '';
+      const div = document.createElement('div');
+      div.className = `presence-card ${st}`;
+      div.innerHTML = `
+        <div class="avatar-sm" style="${avatarStyle}">${initiales}</div>
+        <div class="presence-info">
+          <div class="presence-nom">${nomAffiche}</div>
+          <div class="presence-poste">${agent.poste}</div>
+          ${entree ? `<div class="presence-heure">🟢 ${entree.heure}${sortie ? ` → 🔴 ${sortie.heure}` : ''}</div>` : ''}
+        </div>
+        <div class="presence-status"><span class="badge ${st}">${label}</span></div>`;
+      grid.appendChild(div);
+    });
+  });
+}
+
+function masquerFiltresDashboard() {
+  filtrePresence = 'tous';
+  document.getElementById('dashboard-filtre-card').style.display = 'none';
+  ['tous','presents','absents','retards'].forEach(k => document.getElementById(`kpi-card-${k}`)?.classList.remove('actif'));
 }
 
 async function chargerTodayTable() {
