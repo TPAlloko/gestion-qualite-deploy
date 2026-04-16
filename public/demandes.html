@@ -106,6 +106,27 @@
   #dropzone:hover { border-color:var(--bleu); background:#f0f8ff; }
   #dropzone.drag-over { border-color:var(--bleu); background:#eaf4fb; }
 
+  /* ── Dropdown agent ── */
+  .agent-dropdown-wrap { position:relative; }
+  .agent-dropdown {
+    display:none; position:absolute; top:100%; left:0; right:0; z-index:100;
+    background:white; border:1.5px solid var(--bleu); border-top:none;
+    border-radius:0 0 10px 10px; max-height:220px; overflow-y:auto;
+    box-shadow:0 8px 20px rgba(0,0,0,0.12);
+  }
+  .agent-dropdown.open { display:block; }
+  .agent-option {
+    padding:10px 14px; cursor:pointer; font-size:0.9rem;
+    border-bottom:1px solid #f0f4f8; transition:background 0.15s;
+  }
+  .agent-option:last-child { border-bottom:none; }
+  .agent-option:hover, .agent-option.highlighted { background:#eaf4fb; color:var(--bleu); }
+  .agent-option .opt-id { font-size:0.74rem; color:#aaa; margin-left:6px; }
+  .agent-option .opt-empty { color:#aaa; font-style:italic; font-size:0.85rem; }
+  .input-readonly {
+    background:#f5f8fb !important; color:#666 !important; cursor:default !important;
+  }
+
   .fichier-tag {
     display:inline-flex; align-items:center; gap:6px;
     background:#eaf4fb; border:1px solid #bee3f8; border-radius:8px;
@@ -176,24 +197,27 @@
       <div class="error-box" id="error-box"></div>
 
       <div class="form-group">
-        <label>Votre ID Agent</label>
-        <input type="text" id="f-agentId" placeholder="ex: AGT001" style="text-transform:uppercase;" />
-      </div>
-
-      <div class="form-group">
-        <label>Votre Nom complet</label>
-        <input type="text" id="f-nom" placeholder="ex: KONAN Ama" />
-      </div>
-
-      <div class="form-group">
-        <label>Service</label>
-        <select id="f-service">
+        <label>Poste / Service</label>
+        <select id="f-service" onchange="onServiceChange()">
           <option value="">-- Sélectionner --</option>
-          <option value="Back Office">Back Office (BO)</option>
-          <option value="Call Center">Call Center</option>
+          <option value="Back Office">Agent Back Office</option>
+          <option value="Call Center">Agent Call Center</option>
           <option value="Superviseur">Superviseur</option>
-          <option value="Autre">Autre</option>
         </select>
+      </div>
+
+      <div class="form-group agent-dropdown-wrap">
+        <label>Votre Nom complet</label>
+        <input type="text" id="f-nom" placeholder="Sélectionnez d'abord votre service..."
+               autocomplete="off" oninput="onNomInput()" onfocus="ouvrirDropdown()"
+               onkeydown="navDropdown(event)" />
+        <div class="agent-dropdown" id="agents-dropdown"></div>
+      </div>
+
+      <div class="form-group">
+        <label>Votre ID Agent</label>
+        <input type="text" id="f-agentId" placeholder="Rempli automatiquement"
+               readonly class="input-readonly" />
       </div>
 
       <div class="date-row">
@@ -247,7 +271,117 @@
 
 <script>
 let typeActuel = 'permission';
-let fichiersList = [];   // fichiers sélectionnés
+let fichiersList = [];
+let agentsTous = [];          // tous les agents chargés depuis l'API
+let agentsFiltres = [];       // agents filtrés par service
+let agentSelectionne = null;  // agent choisi dans le dropdown
+let highlightIndex = -1;      // navigation clavier dans le dropdown
+
+// ── Chargement des agents ──
+async function chargerAgents() {
+  try {
+    const resp = await fetch('/api/agents');
+    agentsTous = await resp.json();
+  } catch(e) { /* formulaire reste utilisable sans agents */ }
+}
+chargerAgents();
+
+// ── Quand le service change ──
+function onServiceChange() {
+  const service = document.getElementById('f-service').value;
+  // Réinitialiser le nom et l'ID
+  agentSelectionne = null;
+  document.getElementById('f-nom').value = '';
+  document.getElementById('f-agentId').value = '';
+  document.getElementById('f-nom').placeholder = service
+    ? 'Tapez pour rechercher...' : 'Sélectionnez d\'abord votre service...';
+  fermerDropdown();
+  // Filtrer les agents selon le service
+  agentsFiltres = service ? agentsTous.filter(a => a.service === service) : [];
+}
+
+// ── Saisie dans le champ nom ──
+function onNomInput() {
+  const q = document.getElementById('f-nom').value.toLowerCase().trim();
+  agentSelectionne = null;
+  document.getElementById('f-agentId').value = '';
+  const service = document.getElementById('f-service').value;
+  if (!service) { fermerDropdown(); return; }
+  const liste = q
+    ? agentsFiltres.filter(a => (a.nom_complet || a.prenom + ' ' + a.nom).toLowerCase().includes(q))
+    : agentsFiltres;
+  afficherDropdown(liste);
+}
+
+// ── Ouvrir le dropdown ──
+function ouvrirDropdown() {
+  const service = document.getElementById('f-service').value;
+  if (!service) return;
+  const q = document.getElementById('f-nom').value.toLowerCase().trim();
+  const liste = q
+    ? agentsFiltres.filter(a => (a.nom_complet || a.prenom + ' ' + a.nom).toLowerCase().includes(q))
+    : agentsFiltres;
+  afficherDropdown(liste);
+}
+
+// ── Afficher les options ──
+function afficherDropdown(liste) {
+  const dd = document.getElementById('agents-dropdown');
+  highlightIndex = -1;
+  if (!liste.length) {
+    dd.innerHTML = '<div class="agent-option"><span class="opt-empty">Aucun agent trouvé</span></div>';
+  } else {
+    dd.innerHTML = liste.map((a, i) => {
+      const nom = a.nom_complet || `${a.prenom} ${a.nom}`;
+      return `<div class="agent-option" data-index="${i}" onmousedown="choisirAgent(${i})">${nom}<span class="opt-id">${a.id}</span></div>`;
+    }).join('');
+    dd._liste = liste;
+  }
+  dd.classList.add('open');
+}
+
+// ── Choisir un agent ──
+function choisirAgent(index) {
+  const dd = document.getElementById('agents-dropdown');
+  const liste = dd._liste || [];
+  if (!liste[index]) return;
+  agentSelectionne = liste[index];
+  const nom = agentSelectionne.nom_complet || `${agentSelectionne.prenom} ${agentSelectionne.nom}`;
+  document.getElementById('f-nom').value = nom;
+  document.getElementById('f-agentId').value = agentSelectionne.id;
+  fermerDropdown();
+}
+
+// ── Navigation clavier ──
+function navDropdown(e) {
+  const dd = document.getElementById('agents-dropdown');
+  if (!dd.classList.contains('open')) return;
+  const items = dd.querySelectorAll('.agent-option[data-index]');
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    highlightIndex = Math.min(highlightIndex + 1, items.length - 1);
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    highlightIndex = Math.max(highlightIndex - 1, 0);
+  } else if (e.key === 'Enter' && highlightIndex >= 0) {
+    e.preventDefault();
+    choisirAgent(highlightIndex);
+    return;
+  } else if (e.key === 'Escape') {
+    fermerDropdown(); return;
+  }
+  items.forEach((el, i) => el.classList.toggle('highlighted', i === highlightIndex));
+  if (items[highlightIndex]) items[highlightIndex].scrollIntoView({ block:'nearest' });
+}
+
+// ── Fermer dropdown ──
+function fermerDropdown() {
+  document.getElementById('agents-dropdown').classList.remove('open');
+  highlightIndex = -1;
+}
+document.addEventListener('click', e => {
+  if (!e.target.closest('.agent-dropdown-wrap')) fermerDropdown();
+});
 
 // ── Drag & Drop ──
 document.addEventListener('DOMContentLoaded', () => {
@@ -339,8 +473,9 @@ async function soumettreDemande() {
   const motif     = document.getElementById('f-motif').value.trim();
   const tel       = document.getElementById('f-tel').value.trim();
 
-  if (!agentId || !nom) { showError('Veuillez renseigner votre ID agent et votre nom.'); return; }
-  if (!service) { showError('Veuillez sélectionner votre service.'); return; }
+  if (!service) { showError('Veuillez sélectionner votre poste / service.'); return; }
+  if (!nom) { showError('Veuillez sélectionner votre nom dans la liste.'); return; }
+  if (!agentId) { showError('ID agent introuvable. Sélectionnez votre nom dans la liste.'); return; }
   if (!dateDebut) { showError('Veuillez indiquer la date.'); return; }
   if (!motif) { showError('Veuillez indiquer le motif de votre demande.'); return; }
 
@@ -379,9 +514,12 @@ async function soumettreDemande() {
 function nouvelledemande() {
   document.getElementById('success-box').classList.remove('visible');
   document.getElementById('form-section').style.display = 'block';
+  document.getElementById('f-service').value = '';
   document.getElementById('f-agentId').value = '';
   document.getElementById('f-nom').value = '';
+  document.getElementById('f-nom').placeholder = 'Sélectionnez d\'abord votre service...';
   document.getElementById('f-motif').value = '';
+  agentSelectionne = null; agentsFiltres = [];
   document.getElementById('f-tel').value = '';
   fichiersList = [];
   renderFichiers();
