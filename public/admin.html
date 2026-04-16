@@ -429,6 +429,7 @@
           <option value="">Tous les services</option>
           <option value="Back Office">Back Office</option>
           <option value="Call Center">Call Center</option>
+          <option value="Superviseur">Superviseur</option>
         </select>
         <input type="text" id="search-agents" placeholder="Rechercher..." oninput="chargerAgents()"
           style="padding:6px 10px;border:1.5px solid #dde6ef;border-radius:8px;font-size:0.82rem;width:160px;">
@@ -451,6 +452,11 @@
         style="display:flex;gap:10px;align-items:center;background:#fff3e0;border:2px solid #fde8c8;border-radius:8px;padding:10px 18px;cursor:pointer;transition:all 0.2s;">
         <span style="font-size:1.4rem;">📞</span>
         <div style="text-align:left;"><div style="font-size:1.4rem;font-weight:800;color:#e67e22;" id="count-cc">—</div><div style="font-size:0.74rem;color:#666;">Call Center</div></div>
+      </button>
+      <button id="btn-filtre-sv" onclick="filtrerAgentsParPoste('Superviseur')"
+        style="display:flex;gap:10px;align-items:center;background:#f3e8ff;border:2px solid #d8b4fe;border-radius:8px;padding:10px 18px;cursor:pointer;transition:all 0.2s;">
+        <span style="font-size:1.4rem;">👔</span>
+        <div style="text-align:left;"><div style="font-size:1.4rem;font-weight:800;color:#7c3aed;" id="count-sv">—</div><div style="font-size:0.74rem;color:#666;">Superviseurs</div></div>
       </button>
     </div>
 
@@ -767,9 +773,11 @@ async function chargerPresences() {
   }
 
   // Grouper par service
+  const sup2 = agentsFiltres.filter(a => a.service === 'Superviseur');
   const bo = agentsFiltres.filter(a => a.service === 'Back Office');
   const cc = agentsFiltres.filter(a => a.service === 'Call Center');
   const grouped = [
+    { label:'👔 Superviseurs', liste: sup2 },
     { label:'🏢 Back Office', liste: bo },
     { label:'📞 Call Center', liste: cc }
   ];
@@ -861,9 +869,10 @@ async function filtrerParStatut(statut) {
     grid.innerHTML = '<div style="color:#aaa;text-align:center;padding:30px;grid-column:1/-1;">Aucun agent dans cette catégorie</div>';
     return;
   }
+  const sup3 = agentsFiltres.filter(a => a.service === 'Superviseur');
   const bo = agentsFiltres.filter(a => a.service === 'Back Office');
   const cc = agentsFiltres.filter(a => a.service === 'Call Center');
-  [{ label:'🏢 Back Office', liste: bo }, { label:'📞 Call Center', liste: cc }].forEach(groupe => {
+  [{ label:'👔 Superviseurs', liste: sup3 }, { label:'🏢 Back Office', liste: bo }, { label:'📞 Call Center', liste: cc }].forEach(groupe => {
     if (!groupe.liste.length) return;
     const titre = document.createElement('div');
     titre.style.cssText = 'grid-column:1/-1;font-size:0.8rem;font-weight:700;color:#1A5676;text-transform:uppercase;letter-spacing:1px;padding:8px 0 4px;border-bottom:2px solid #e8f0f8;margin-bottom:4px;';
@@ -974,11 +983,11 @@ function filtrerAgentsParPoste(service) {
   const sel = document.getElementById('filtre-service-agents');
   if (sel) sel.value = service;
   // Highlight bouton actif
-  ['tous','bo','cc'].forEach(k => {
+  ['tous','bo','cc','sv'].forEach(k => {
     const btn = document.getElementById('btn-filtre-' + k);
     if (btn) btn.style.outline = 'none';
   });
-  const map = { '': 'tous', 'Back Office': 'bo', 'Call Center': 'cc' };
+  const map = { '': 'tous', 'Back Office': 'bo', 'Call Center': 'cc', 'Superviseur': 'sv' };
   const actif = document.getElementById('btn-filtre-' + (map[service] || 'tous'));
   if (actif) actif.style.outline = '3px solid #1A5676';
   chargerAgents();
@@ -1010,9 +1019,11 @@ async function chargerAgents() {
   document.getElementById('nb-agents').textContent = liste.length + ' / ' + agents.length;
   const bo = agents.filter(a=>a.service==='Back Office');
   const cc = agents.filter(a=>a.service==='Call Center');
+  const sv = agents.filter(a=>a.service==='Superviseur');
   document.getElementById('count-tous').textContent = agents.length;
   document.getElementById('count-bo').textContent = bo.length;
   document.getElementById('count-cc').textContent = cc.length;
+  document.getElementById('count-sv').textContent = sv.length;
 
   // Remplir select historique
   const sel = document.getElementById('hist-agent');
