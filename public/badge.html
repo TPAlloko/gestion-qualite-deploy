@@ -561,8 +561,9 @@ async function selectionnerAgent(agent) {
       if (btnEntree) { btnEntree.disabled = true; btnEntree.style.opacity = '0.35'; }
       selectionnerType('sortie'); // pré-sélectionner départ
     } else {
-      // Pas encore d'arrivée → départ impossible
+      // Pas encore d'arrivée → départ impossible + auto-sélectionner arrivée
       if (btnSortie) { btnSortie.disabled = true; btnSortie.style.opacity = '0.35'; }
+      selectionnerType('entree');
     }
   } catch(e) {
     // En cas d'erreur réseau, on laisse l'agent choisir librement
