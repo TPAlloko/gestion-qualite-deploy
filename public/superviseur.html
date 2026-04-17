@@ -516,7 +516,7 @@ async function chargerDemandes() {
     dem.forEach(d => {
       const periode = d.dateFin ? `${d.dateDebut} → ${d.dateFin}` : (d.heure ? `${d.dateDebut} à ${d.heure}` : d.dateDebut);
       const pj = d.piecesJointes && d.piecesJointes.length
-        ? `<div style="margin-top:6px;">${d.piecesJointes.map(p=>`<a href="${p.chemin}" target="_blank" style="font-size:0.72rem;background:#eaf4fb;color:#1A5676;border:1px solid #bee3f8;border-radius:6px;padding:2px 7px;text-decoration:none;margin-right:4px;">📎 ${p.nom}</a>`).join('')}</div>` : '';
+        ? `<div style="margin-top:6px;">${d.piecesJointes.map((p,idx)=>`<a href="/api/demandes/${d.id}/pj/${idx}" target="_blank" style="font-size:0.72rem;background:#eaf4fb;color:#1A5676;border:1px solid #bee3f8;border-radius:6px;padding:2px 7px;text-decoration:none;margin-right:4px;">📎 ${p.nom}</a>`).join('')}</div>` : '';
 
       div.innerHTML += `
         <div class="demande-card ${d.statut}">
