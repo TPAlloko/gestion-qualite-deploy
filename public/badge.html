@@ -387,6 +387,18 @@ let badgageEnCours = false;    // verrou anti-double-envoi
 let geoLat = null, geoLng = null;
 let geoReady = false;
 
+const BUREAU_LAT_C   =  5.344125;
+const BUREAU_LNG_C   = -4.010596;
+const BUREAU_RAYON_C = 100; // mètres
+
+function distanceM(lat1, lng1, lat2, lng2) {
+  const R = 6371000;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
 function afficherErreurGeo(msg) {
   document.body.innerHTML = `
     <div style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;
@@ -400,6 +412,46 @@ function afficherErreurGeo(msg) {
         Réessayer
       </button>
     </div>`;
+}
+
+function afficherToastGeo(msg) {
+  let el = document.getElementById('geo-toast');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'geo-toast';
+    el.style.cssText = 'position:fixed;top:18px;left:50%;transform:translateX(-50%);z-index:9999;' +
+      'background:rgba(192,57,43,0.97);color:white;padding:14px 20px;border-radius:14px;' +
+      'text-align:center;font-size:0.86rem;max-width:320px;width:90%;' +
+      'box-shadow:0 6px 24px rgba(0,0,0,0.5);line-height:1.5;';
+    document.body.appendChild(el);
+  }
+  el.innerHTML = `<div style="font-size:1.5rem;margin-bottom:6px;">📍</div><div>${msg}</div>`;
+  el.style.display = 'block';
+  clearTimeout(el._timer);
+  el._timer = setTimeout(() => { el.style.display = 'none'; }, 7000);
+}
+
+async function verifierRayonBureau() {
+  // Rafraîchir la position GPS
+  if (navigator.geolocation) {
+    await new Promise(resolve => {
+      navigator.geolocation.getCurrentPosition(
+        pos => { geoLat = pos.coords.latitude; geoLng = pos.coords.longitude; geoReady = true; resolve(); },
+        () => resolve(),
+        { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 }
+      );
+    });
+  }
+  if (!geoReady || geoLat == null) {
+    afficherToastGeo('GPS non disponible. Activez la localisation et réessayez.');
+    return false;
+  }
+  const dist = Math.round(distanceM(geoLat, geoLng, BUREAU_LAT_C, BUREAU_LNG_C));
+  if (dist > BUREAU_RAYON_C) {
+    afficherToastGeo(`Vous êtes à ${dist} m du bureau. Vous devez être à moins de ${BUREAU_RAYON_C} m pour badger.`);
+    return false;
+  }
+  return true;
 }
 
 function demanderGeo() {
@@ -522,6 +574,10 @@ function filtrerAgents() {
 }
 
 async function selectionnerAgent(agent) {
+  // Bloquer immédiatement si hors rayon
+  const dansRayon = await verifierRayonBureau();
+  if (!dansRayon) return;
+
   agentSelectionne = agent;
   typeSelectionne  = null;
   photoBase64      = null;
