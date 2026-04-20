@@ -10,7 +10,7 @@ const pgSession = require('connect-pg-simple')(session);
 // ── Géolocalisation bureau ──
 const BUREAU_LAT   =  5.344125;
 const BUREAU_LNG   = -4.010596;
-const BUREAU_RAYON = 100; // mètres
+const BUREAU_RAYON = 50; // mètres
 
 // ── Horaires de travail ──
 const HEURE_DEBUT = 9;  // 09h00 — retard si arrivée après
