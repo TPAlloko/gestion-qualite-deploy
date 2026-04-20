@@ -448,7 +448,7 @@ async function verifierRayonBureau() {
   }
   const dist = Math.round(distanceM(geoLat, geoLng, BUREAU_LAT_C, BUREAU_LNG_C));
   if (dist > BUREAU_RAYON_C) {
-    afficherToastGeo(`Vous êtes à ${dist} m du bureau. Vous devez être à moins de ${BUREAU_RAYON_C} m pour badger.`);
+    afficherToastGeo(`Vous êtes à ${dist} m du bureau. Vous devez être au bureau pour badger.`);
     return false;
   }
   return true;
