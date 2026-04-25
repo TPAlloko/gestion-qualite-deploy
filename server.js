@@ -6,6 +6,7 @@ const session  = require('express-session');
 const bcrypt   = require('bcryptjs');
 const { Pool } = require('pg');
 const pgSession = require('connect-pg-simple')(session);
+const webpush   = require('web-push');
 
 // ── Géolocalisation bureau ──
 const BUREAU_LAT   =  5.344125;
@@ -104,6 +105,13 @@ async function initDB() {
       CONSTRAINT session_pkey PRIMARY KEY (sid)
     );
     CREATE INDEX IF NOT EXISTS IDX_session_expire ON session (expire);
+
+    CREATE TABLE IF NOT EXISTS push_subscriptions (
+      id           TEXT PRIMARY KEY,
+      agent_id     TEXT NOT NULL,
+      subscription JSONB NOT NULL,
+      created_at   TIMESTAMPTZ DEFAULT NOW()
+    );
   `);
 
   // Synchroniser les noms dans les pointages si un agent a été renommé
@@ -165,6 +173,11 @@ function requireSuperviseur(req, res, next) {
 }
 
 const SUPERVISEUR_TOKEN = process.env.SUPERVISEUR_TOKEN || '613f01aaac557e34545efc1c73c5337e';
+
+// ── Web Push (VAPID) ──
+const VAPID_PUBLIC  = process.env.VAPID_PUBLIC_KEY  || 'BPf11DjbWpHI7peYo6FaD96SRVQpm08fZpie2MYpJBwxz8fWfraTTJPlZk16mOnZMK8Z0Bvx4LQP8QwKX6X5TDc';
+const VAPID_PRIVATE = process.env.VAPID_PRIVATE_KEY || 'KmJN-TuoMjM9hym0R0LTc-wlI3w4PFtqapfvFKEZ1ss';
+webpush.setVapidDetails('mailto:alloko@colibri.africa', VAPID_PUBLIC, VAPID_PRIVATE);
 
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -477,6 +490,7 @@ app.patch('/api/demandes/:id', requireAuth, requireAdmin, async (req, res) => {
   if (!rows.length) return res.status(404).json({ erreur: 'Demande introuvable.' });
   const demande = rowToDemande(rows[0]);
   io.emit('demande-mise-a-jour', demande);
+  if (statut && statut !== 'en_attente') envoyerPushDemande(demande).catch(() => {});
   res.json({ ok: true, demande });
 });
 
@@ -547,6 +561,65 @@ app.get('/api/superviseur/demandes', requireSuperviseur, async (req, res) => {
   query += ' ORDER BY created_at DESC';
   const { rows } = await pool.query(query, params);
   res.json(rows.map(rowToDemande));
+});
+
+// ─────────────────────────────────────────
+// WEB PUSH
+// ─────────────────────────────────────────
+
+async function envoyerPushDemande(demande) {
+  if (!VAPID_PUBLIC || !VAPID_PRIVATE) return;
+  const { rows: subs } = await pool.query(
+    'SELECT id, subscription FROM push_subscriptions WHERE agent_id = $1',
+    [demande.agentId]
+  );
+  if (!subs.length) return;
+  const labels = { acceptee: '✅ acceptée', refusee: '❌ refusée' };
+  const label = labels[demande.statut] || demande.statut;
+  const payload = JSON.stringify({
+    title: 'Décision — Crystal Solutions',
+    body: `Votre demande du ${demande.dateDebut} a été ${label}.`
+      + (demande.commentaire ? ` "${demande.commentaire}"` : '')
+  });
+  for (const sub of subs) {
+    try {
+      await webpush.sendNotification(sub.subscription, payload);
+    } catch (e) {
+      if (e.statusCode === 410 || e.statusCode === 404) {
+        await pool.query('DELETE FROM push_subscriptions WHERE id = $1', [sub.id]);
+      }
+    }
+  }
+}
+
+app.get('/api/push/vapid-key', (req, res) => {
+  res.json({ key: VAPID_PUBLIC });
+});
+
+app.post('/api/push/subscribe', async (req, res) => {
+  const { agentId, subscription } = req.body;
+  if (!agentId || !subscription || !subscription.endpoint)
+    return res.status(400).json({ erreur: 'Données manquantes.' });
+  const { rows: agentRows } = await pool.query(
+    'SELECT id FROM agents WHERE id = $1', [agentId.toUpperCase()]
+  );
+  if (!agentRows.length) return res.status(404).json({ erreur: 'Agent introuvable.' });
+  const endpoint = subscription.endpoint;
+  const { rows: existing } = await pool.query(
+    "SELECT id FROM push_subscriptions WHERE subscription->>'endpoint' = $1", [endpoint]
+  );
+  if (existing.length) {
+    await pool.query(
+      'UPDATE push_subscriptions SET agent_id = $1, subscription = $2, created_at = NOW() WHERE id = $3',
+      [agentId.toUpperCase(), JSON.stringify(subscription), existing[0].id]
+    );
+  } else {
+    await pool.query(
+      'INSERT INTO push_subscriptions (id, agent_id, subscription) VALUES ($1, $2, $3)',
+      [Date.now().toString(), agentId.toUpperCase(), JSON.stringify(subscription)]
+    );
+  }
+  res.json({ ok: true });
 });
 
 // Stub tunnel-info (pas de tunnel sur Railway — URL publique fixe)

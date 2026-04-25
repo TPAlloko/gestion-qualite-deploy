@@ -1,6 +1,6 @@
 {
   "name": "gestion-qualite",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Système de gestion qualité avec badgeage QR Code",
   "main": "server.js",
   "scripts": {
@@ -15,6 +15,7 @@
     "express": "^5.2.1",
     "express-session": "^1.19.0",
     "pg": "^8.20.0",
-    "socket.io": "^4.8.3"
+    "socket.io": "^4.8.3",
+    "web-push": "^3.6.7"
   }
 }
