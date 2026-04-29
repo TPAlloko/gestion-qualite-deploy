@@ -291,6 +291,7 @@ let highlightIndex = -1;
 let swReg = null;
 let vapidPublicKey = null;
 let agentIdPourNotif = null;
+let dejaAbonne = false;
 
 function urlB64ToUint8Array(b64) {
   const pad = '='.repeat((4 - b64.length % 4) % 4);
@@ -306,6 +307,9 @@ async function initPush() {
     if (!resp.ok) return;
     const data = await resp.json();
     vapidPublicKey = data.key;
+    // Vérifier si une subscription active existe déjà sur cet appareil
+    const existingSub = await swReg.pushManager.getSubscription();
+    if (existingSub) dejaAbonne = true;
   } catch(e) {}
 }
 initPush();
@@ -557,9 +561,21 @@ async function soumettreDemande() {
       document.getElementById('form-section').style.display = 'none';
       document.getElementById('success-box').classList.add('visible');
       if (swReg && vapidPublicKey) {
-        document.getElementById('btn-notif').textContent = '🔔 Être notifié quand ma demande est traitée';
-        document.getElementById('notif-ok').style.display = 'none';
         document.getElementById('notif-section').style.display = 'block';
+        if (dejaAbonne) {
+          document.getElementById('btn-notif').style.display = 'none';
+          document.getElementById('notif-ok').style.display = 'block';
+          // Mettre à jour l'agentId pour ce nouvel appareil déjà abonné
+          swReg.pushManager.getSubscription().then(sub => {
+            if (sub) fetch('/api/push/subscribe', {
+              method:'POST', headers:{'Content-Type':'application/json'},
+              body: JSON.stringify({ agentId: agentIdPourNotif, subscription: sub.toJSON() })
+            });
+          });
+        } else {
+          document.getElementById('btn-notif').textContent = '🔔 Être notifié quand ma demande est traitée';
+          document.getElementById('notif-ok').style.display = 'none';
+        }
       }
     } else {
       showError(data.erreur || 'Erreur lors de l\'envoi. Réessayez.');

@@ -481,7 +481,10 @@
       <button class="btn btn-outline" style="padding:18px;flex-direction:column;gap:8px;font-size:0.9rem;" onclick="exporterCSV()">
         <span style="font-size:2rem;">📄</span> Exporter CSV<br><small style="opacity:0.8;">Compatible tous outils</small>
       </button>
-      <button class="btn btn-primary" style="padding:18px;flex-direction:column;gap:8px;font-size:0.9rem;" onclick="window.print()">
+      <button class="btn btn-primary" style="padding:18px;flex-direction:column;gap:8px;font-size:0.9rem;" onclick="exporterExcelDemandes()">
+        <span style="font-size:2rem;">📋</span> Export Demandes<br><small style="opacity:0.8;">Permissions &amp; absences</small>
+      </button>
+      <button class="btn btn-outline" style="padding:18px;flex-direction:column;gap:8px;font-size:0.9rem;" onclick="window.print()">
         <span style="font-size:2rem;">🖨️</span> Imprimer<br><small style="opacity:0.8;">Rapport du jour</small>
       </button>
     </div>
@@ -1156,6 +1159,29 @@ async function exporterExcel() {
   });
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(recap), 'Récapitulatif');
   XLSX.writeFile(wb, `Rapport_Qualite_${new Date().toISOString().split('T')[0]}.xlsx`);
+}
+
+async function exporterExcelDemandes() {
+  const demandes = await fetch('/api/demandes').then(r => r.json()).catch(() => []);
+  const wb = XLSX.utils.book_new();
+  const rows = [['Date dépôt','Agent ID','Nom','Service','Type','Début','Fin','Heure','Motif','Téléphone','Statut','Commentaire','Traité par','Traité le']];
+  const typesFr = { permission:'Permission', absence:'Absence', conge:'Congé', retard:'Retard prévu' };
+  const statutsFr = { en_attente:'En attente', approuve:'Approuvé', refuse:'Refusé' };
+  demandes.forEach(d => {
+    const dateDepot = d.createdAt ? new Date(d.createdAt).toLocaleDateString('fr-FR') : '';
+    const dateTraite = d.traiteAt ? new Date(d.traiteAt).toLocaleDateString('fr-FR') : '';
+    rows.push([
+      dateDepot, d.agentId, d.nom, d.service || '',
+      typesFr[d.type] || d.type, d.dateDebut || '', d.dateFin || '',
+      d.heure || '', d.motif || '', d.tel || '',
+      statutsFr[d.statut] || d.statut, d.commentaire || '',
+      d.traitePar || '', dateTraite
+    ]);
+  });
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols'] = [10,10,20,15,15,12,12,8,30,14,12,30,15,12].map(w => ({ wch: w }));
+  XLSX.utils.book_append_sheet(wb, ws, 'Demandes');
+  XLSX.writeFile(wb, `Demandes_RH_${new Date().toISOString().split('T')[0]}.xlsx`);
 }
 
 async function exporterCSV() {

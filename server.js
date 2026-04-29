@@ -7,6 +7,7 @@ const bcrypt   = require('bcryptjs');
 const { Pool } = require('pg');
 const pgSession = require('connect-pg-simple')(session);
 const webpush   = require('web-push');
+const { randomUUID } = require('crypto');
 
 // ── Géolocalisation bureau ──
 const BUREAU_LAT   =  5.344125;
@@ -112,6 +113,12 @@ async function initDB() {
       subscription JSONB NOT NULL,
       created_at   TIMESTAMPTZ DEFAULT NOW()
     );
+
+    CREATE INDEX IF NOT EXISTS idx_pointages_date     ON pointages(date);
+    CREATE INDEX IF NOT EXISTS idx_pointages_agent_id ON pointages(agent_id);
+    CREATE INDEX IF NOT EXISTS idx_demandes_statut    ON demandes(statut);
+    CREATE INDEX IF NOT EXISTS idx_demandes_agent_id  ON demandes(agent_id);
+    CREATE INDEX IF NOT EXISTS idx_push_subs_agent    ON push_subscriptions(agent_id);
   `);
 
   // Synchroniser les noms dans les pointages si un agent a été renommé
@@ -131,7 +138,7 @@ async function initDB() {
     const hash = bcrypt.hashSync('admin123', 10);
     await pool.query(
       "INSERT INTO users (id, nom, login, password, role, actif) VALUES ($1, $2, $3, $4, $5, $6)",
-      [Date.now().toString(), 'Administrateur', 'admin', hash, 'admin', true]
+      [randomUUID(), 'Administrateur', 'admin', hash, 'admin', true]
     );
     console.log('  Compte admin créé (login: admin / mdp: admin123)');
   }
@@ -173,11 +180,28 @@ function requireSuperviseur(req, res, next) {
 }
 
 const SUPERVISEUR_TOKEN = process.env.SUPERVISEUR_TOKEN || '613f01aaac557e34545efc1c73c5337e';
+if (!process.env.SUPERVISEUR_TOKEN) console.warn('⚠️  SUPERVISEUR_TOKEN non défini en variable Railway');
 
 // ── Web Push (VAPID) ──
-const VAPID_PUBLIC  = process.env.VAPID_PUBLIC_KEY  || 'BPf11DjbWpHI7peYo6FaD96SRVQpm08fZpie2MYpJBwxz8fWfraTTJPlZk16mOnZMK8Z0Bvx4LQP8QwKX6X5TDc';
-const VAPID_PRIVATE = process.env.VAPID_PRIVATE_KEY || 'KmJN-TuoMjM9hym0R0LTc-wlI3w4PFtqapfvFKEZ1ss';
-webpush.setVapidDetails('mailto:alloko@colibri.africa', VAPID_PUBLIC, VAPID_PRIVATE);
+const VAPID_PUBLIC  = process.env.VAPID_PUBLIC_KEY || 'BPf11DjbWpHI7peYo6FaD96SRVQpm08fZpie2MYpJBwxz8fWfraTTJPlZk16mOnZMK8Z0Bvx4LQP8QwKX6X5TDc';
+const VAPID_PRIVATE = process.env.VAPID_PRIVATE_KEY || null;
+if (!VAPID_PRIVATE) console.warn('⚠️  VAPID_PRIVATE_KEY non défini — notifications push désactivées');
+else webpush.setVapidDetails('mailto:alloko@colibri.africa', VAPID_PUBLIC, VAPID_PRIVATE);
+
+// ── Rate limiting (in-memory) ──
+const _rateLimits = new Map();
+function rateLimit(max, windowMs) {
+  return (req, res, next) => {
+    const key = req.ip;
+    const now = Date.now();
+    const hits = (_rateLimits.get(key) || []).filter(t => t > now - windowMs);
+    hits.push(now);
+    _rateLimits.set(key, hits);
+    if (hits.length > max)
+      return res.status(429).json({ erreur: 'Trop de requêtes. Veuillez patienter avant de réessayer.' });
+    next();
+  };
+}
 
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -231,6 +255,12 @@ app.get('/api/pointages', async (req, res) => {
   if (req.query.date)    { params.push(req.query.date);    query += ` AND date = $${params.length}`; }
   if (req.query.agentId) { params.push(req.query.agentId); query += ` AND agent_id = $${params.length}`; }
   query += ' ORDER BY timestamp DESC';
+  if (req.query.limit) {
+    params.push(Math.min(parseInt(req.query.limit) || 100, 1000));
+    query += ` LIMIT $${params.length}`;
+    params.push(parseInt(req.query.offset) || 0);
+    query += ` OFFSET $${params.length}`;
+  }
   const { rows } = await pool.query(query, params);
   res.json(rows.map(rowToPointage));
 });
@@ -290,7 +320,7 @@ app.get('/api/statut-jour/:agentId', async (req, res) => {
 });
 
 // ── Badgeage ──
-app.post('/api/badger', async (req, res) => {
+app.post('/api/badger', rateLimit(10, 60_000), async (req, res) => {
   const { agentId, photo, source } = req.body;
   if (!agentId) return res.status(400).json({ erreur: 'ID agent manquant' });
 
@@ -348,7 +378,7 @@ app.post('/api/badger', async (req, res) => {
   }
   const [h, m] = heure.split(':').map(Number);
   const retard = type === 'entree' && (h > HEURE_DEBUT || (h === HEURE_DEBUT && m > 0));
-  const pointageId = Date.now().toString();
+  const pointageId = randomUUID();
 
   // Photo stockée en base64 dans la DB
   let photoData = null;
@@ -425,7 +455,7 @@ app.post('/api/users', requireAuth, requireAdmin, async (req, res) => {
   if (rows.length) return res.status(400).json({ erreur: 'Ce login existe déjà.' });
   await pool.query(
     'INSERT INTO users (id, nom, login, password, role, actif) VALUES ($1,$2,$3,$4,$5,$6)',
-    [Date.now().toString(), nom, login, bcrypt.hashSync(password, 10), role || 'superviseur', true]
+    [randomUUID(), nom, login, bcrypt.hashSync(password, 10), role || 'superviseur', true]
   );
   res.json({ ok: true });
 });
@@ -441,12 +471,12 @@ app.delete('/api/users/:id', requireAuth, requireAdmin, async (req, res) => {
 // DEMANDES
 // ─────────────────────────────────────────
 
-app.post('/api/demandes', async (req, res) => {
+app.post('/api/demandes', rateLimit(5, 60_000), async (req, res) => {
   const { agentId, nom, service, type, dateDebut, dateFin, heure, motif, tel, piecesJointes, source } = req.body;
   if (!agentId || !nom || !type || !dateDebut || !motif)
     return res.status(400).json({ erreur: 'Champs obligatoires manquants.' });
 
-  const demandeId = Date.now().toString();
+  const demandeId = randomUUID();
 
   // Pièces jointes stockées en JSONB (base64)
   const pj = Array.isArray(piecesJointes)
@@ -473,6 +503,12 @@ app.get('/api/demandes', requireAuth, async (req, res) => {
   const params = [];
   if (req.query.statut) { params.push(req.query.statut); query += ` AND statut = $${params.length}`; }
   query += ' ORDER BY created_at DESC';
+  if (req.query.limit) {
+    params.push(Math.min(parseInt(req.query.limit) || 50, 500));
+    query += ` LIMIT $${params.length}`;
+    params.push(parseInt(req.query.offset) || 0);
+    query += ` OFFSET $${params.length}`;
+  }
   const { rows } = await pool.query(query, params);
   res.json(rows.map(rowToDemande));
 });
@@ -574,7 +610,7 @@ async function envoyerPushDemande(demande) {
     [demande.agentId]
   );
   if (!subs.length) return;
-  const labels = { acceptee: '✅ acceptée', refusee: '❌ refusée' };
+  const labels = { approuve: '✅ approuvée', refuse: '❌ refusée', acceptee: '✅ acceptée', refusee: '❌ refusée' };
   const label = labels[demande.statut] || demande.statut;
   const payload = JSON.stringify({
     title: 'Décision — Crystal Solutions',
@@ -616,10 +652,33 @@ app.post('/api/push/subscribe', async (req, res) => {
   } else {
     await pool.query(
       'INSERT INTO push_subscriptions (id, agent_id, subscription) VALUES ($1, $2, $3)',
-      [Date.now().toString(), agentId.toUpperCase(), JSON.stringify(subscription)]
+      [randomUUID(), agentId.toUpperCase(), JSON.stringify(subscription)]
     );
   }
   res.json({ ok: true });
+});
+
+// ── Historique de demandes d'un agent (public) ──
+app.get('/api/mes-demandes/:agentId', async (req, res) => {
+  const agentId = req.params.agentId.toUpperCase();
+  const { rows: agentRows } = await pool.query(
+    'SELECT id, nom, prenom, nom_complet FROM agents WHERE id = $1', [agentId]
+  );
+  if (!agentRows.length) return res.status(404).json({ erreur: 'Agent introuvable.' });
+  const { rows } = await pool.query(
+    `SELECT id, type, date_debut, date_fin, heure, motif, statut, commentaire,
+            traite_par, traite_at, created_at
+     FROM demandes WHERE agent_id = $1 ORDER BY created_at DESC LIMIT 30`,
+    [agentId]
+  );
+  res.json({
+    agent: agentRows[0],
+    demandes: rows.map(r => ({
+      id: r.id, type: r.type, dateDebut: r.date_debut, dateFin: r.date_fin,
+      heure: r.heure, motif: r.motif, statut: r.statut, commentaire: r.commentaire,
+      traitePar: r.traite_par, traiteAt: r.traite_at, createdAt: r.created_at
+    }))
+  });
 });
 
 // Stub tunnel-info (pas de tunnel sur Railway — URL publique fixe)
@@ -645,6 +704,7 @@ app.get('/api/public-url', requireAuth, (req, res) => {
 // PAGES
 // ─────────────────────────────────────────
 app.get('/login',            (_, res) => res.sendFile(path.join(__dirname, 'public', 'login.html')));
+app.get('/mes-demandes',    (_, res) => res.sendFile(path.join(__dirname, 'public', 'mes-demandes.html')));
 app.get('/badge',            (_, res) => res.sendFile(path.join(__dirname, 'public', 'badge.html')));
 app.get('/affichage',        (_, res) => res.sendFile(path.join(__dirname, 'public', 'affichage.html')));
 app.get('/demandes',         (_, res) => res.sendFile(path.join(__dirname, 'public', 'demandes.html')));

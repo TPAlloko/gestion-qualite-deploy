@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mes Demandes — Crystal Solutions</title>
+<style>
+  :root { --bleu:#1A5676; --bleu2:#2c7da0; --vert:#27ae60; --rouge:#e74c3c; --orange:#e67e22; --gris:#f0f4f8; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:'Segoe UI',system-ui,sans-serif; background:var(--gris); color:#1e2d3d; min-height:100vh; }
+
+  header {
+    background:linear-gradient(135deg,var(--bleu),var(--bleu2));
+    color:white; padding:20px 24px; text-align:center;
+    box-shadow:0 4px 16px rgba(0,0,0,0.18);
+  }
+  header .logo { font-size:2rem; margin-bottom:6px; }
+  header h1 { font-size:1.2rem; font-weight:700; letter-spacing:0.4px; }
+  header p { font-size:0.78rem; opacity:0.65; margin-top:4px; }
+
+  .container { max-width:640px; margin:30px auto; padding:0 16px 60px; }
+
+  .card {
+    background:white; border-radius:16px; padding:24px;
+    box-shadow:0 4px 20px rgba(0,0,0,0.08); margin-bottom:20px;
+  }
+
+  .search-form { display:flex; gap:10px; }
+  .search-form input {
+    flex:1; padding:11px 14px; border:1.5px solid #dde6ef;
+    border-radius:10px; font-size:0.95rem; font-family:inherit;
+    transition:border 0.2s;
+  }
+  .search-form input:focus { outline:none; border-color:var(--bleu); box-shadow:0 0 0 3px rgba(26,86,118,0.1); }
+  .search-form input::placeholder { color:#bbb; }
+  .btn-search {
+    padding:11px 20px; background:var(--bleu); color:white;
+    border:none; border-radius:10px; font-weight:700; cursor:pointer;
+    font-size:0.92rem; transition:background 0.2s; white-space:nowrap;
+  }
+  .btn-search:hover { background:var(--bleu2); }
+
+  .agent-info {
+    display:none; background:#eaf4fb; border:1px solid #bee3f8;
+    border-radius:10px; padding:12px 16px; margin-bottom:16px;
+    font-size:0.88rem; color:var(--bleu);
+  }
+  .agent-info strong { font-size:1rem; }
+
+  .demande-item {
+    border:1.5px solid #e8f0f8; border-radius:12px; padding:16px;
+    margin-bottom:12px; background:white; transition:border-color 0.2s;
+  }
+  .demande-item.approuve { border-color:#82e0aa; background:#f0fdf4; }
+  .demande-item.refuse   { border-color:#f5c6c6; background:#fef5f5; }
+  .demande-item.en_attente { border-color:#fde8c8; background:#fffaf4; }
+
+  .d-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; }
+  .d-type { font-weight:700; font-size:0.92rem; }
+  .badge-statut {
+    display:inline-flex; align-items:center; gap:4px;
+    padding:4px 12px; border-radius:20px; font-size:0.76rem; font-weight:700;
+  }
+  .badge-statut.approuve  { background:#d5f5e3; color:#1e8449; }
+  .badge-statut.refuse    { background:#fde8e8; color:#c0392b; }
+  .badge-statut.en_attente{ background:#fff3e0; color:#d68910; }
+
+  .d-detail { font-size:0.82rem; color:#666; display:flex; flex-wrap:wrap; gap:10px; margin-bottom:8px; }
+  .d-detail span { display:flex; align-items:center; gap:4px; }
+  .d-motif { font-size:0.84rem; color:#444; font-style:italic; padding:8px 12px; background:#f8fbfe; border-radius:8px; margin-bottom:8px; }
+  .d-commentaire { font-size:0.82rem; padding:8px 12px; border-radius:8px; margin-top:8px; }
+  .d-commentaire.approuve { background:#d5f5e3; color:#1e8449; }
+  .d-commentaire.refuse   { background:#fde8e8; color:#c0392b; }
+  .d-traite { font-size:0.74rem; color:#aaa; margin-top:6px; }
+
+  .empty { text-align:center; color:#bbb; padding:40px 20px; font-size:0.9rem; }
+  .error-msg { color:var(--rouge); font-size:0.88rem; text-align:center; padding:12px; }
+
+  .spinner-wrap { text-align:center; padding:30px; }
+  .spinner {
+    width:28px; height:28px; border:3px solid rgba(26,86,118,0.2);
+    border-top-color:var(--bleu); border-radius:50%;
+    display:inline-block; animation:spin 0.7s linear infinite;
+  }
+  @keyframes spin { to { transform:rotate(360deg); } }
+
+  .btn-nouvelle {
+    display:block; width:100%; padding:13px; text-align:center;
+    background:white; color:var(--bleu); border:1.5px solid var(--bleu);
+    border-radius:10px; font-weight:700; text-decoration:none;
+    font-size:0.92rem; transition:all 0.2s;
+  }
+  .btn-nouvelle:hover { background:#eaf4fb; }
+
+  @media(max-width:480px) { .card { padding:16px; } }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">📋</div>
+  <h1>CRYSTAL SOLUTIONS — MES DEMANDES</h1>
+  <p>Consultez le statut de vos demandes RH</p>
+</header>
+
+<div class="container">
+
+  <div class="card">
+    <div style="font-size:0.8rem;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px;">Entrez votre ID agent</div>
+    <div class="search-form">
+      <input type="text" id="input-id" placeholder="ex: BO022" maxlength="20"
+             onkeydown="if(event.key==='Enter') chercher()" />
+      <button class="btn-search" onclick="chercher()">Rechercher</button>
+    </div>
+    <div class="error-msg" id="error-msg" style="display:none;"></div>
+  </div>
+
+  <div class="agent-info" id="agent-info"></div>
+
+  <div id="results-section" style="display:none;">
+    <div id="loading" class="spinner-wrap" style="display:none;"><div class="spinner"></div></div>
+    <div id="liste-demandes"></div>
+    <a href="/demandes" class="btn-nouvelle">+ Faire une nouvelle demande</a>
+  </div>
+
+</div>
+
+<script>
+const TYPE_LABELS = {
+  permission: '🚪 Permission de sortie',
+  absence:    '🤒 Absence / Maladie',
+  conge:      '🏖️ Congé',
+  retard:     '⏰ Retard prévu'
+};
+
+async function chercher() {
+  const agentId = document.getElementById('input-id').value.trim().toUpperCase();
+  const errEl = document.getElementById('error-msg');
+  errEl.style.display = 'none';
+
+  if (!agentId) {
+    errEl.textContent = 'Veuillez entrer votre ID agent.';
+    errEl.style.display = 'block';
+    return;
+  }
+
+  document.getElementById('results-section').style.display = 'block';
+  document.getElementById('loading').style.display = 'block';
+  document.getElementById('liste-demandes').innerHTML = '';
+  document.getElementById('agent-info').style.display = 'none';
+
+  try {
+    const resp = await fetch('/api/mes-demandes/' + encodeURIComponent(agentId));
+    const data = await resp.json();
+
+    document.getElementById('loading').style.display = 'none';
+
+    if (!resp.ok) {
+      errEl.textContent = data.erreur || 'Agent introuvable.';
+      errEl.style.display = 'block';
+      document.getElementById('results-section').style.display = 'none';
+      return;
+    }
+
+    const agentInfo = document.getElementById('agent-info');
+    const nomAffiche = data.agent.nom_complet || (data.agent.prenom + ' ' + data.agent.nom);
+    agentInfo.innerHTML = `<strong>${nomAffiche}</strong> &nbsp;·&nbsp; ID : <code>${agentId}</code>`;
+    agentInfo.style.display = 'block';
+
+    afficherDemandes(data.demandes);
+  } catch(e) {
+    document.getElementById('loading').style.display = 'none';
+    errEl.textContent = 'Impossible de contacter le serveur. Vérifiez votre connexion.';
+    errEl.style.display = 'block';
+  }
+}
+
+function afficherDemandes(demandes) {
+  const div = document.getElementById('liste-demandes');
+
+  if (!demandes.length) {
+    div.innerHTML = '<div class="empty">Aucune demande trouvée pour cet agent.</div>';
+    return;
+  }
+
+  div.innerHTML = '';
+  demandes.forEach(d => {
+    const typeLabel = TYPE_LABELS[d.type] || d.type;
+    const statut = d.statut || 'en_attente';
+    const statutLabel = statut === 'approuve' ? '✅ Approuvé' : statut === 'refuse' ? '❌ Refusé' : '⏳ En attente';
+
+    const periode = d.dateFin
+      ? `${formaterDate(d.dateDebut)} → ${formaterDate(d.dateFin)}`
+      : (d.heure ? `${formaterDate(d.dateDebut)} à ${d.heure}` : formaterDate(d.dateDebut));
+
+    const dateDepot = new Date(d.createdAt).toLocaleDateString('fr-FR', {
+      day:'2-digit', month:'2-digit', year:'numeric',
+      hour:'2-digit', minute:'2-digit'
+    });
+
+    const commentaireHtml = d.commentaire
+      ? `<div class="d-commentaire ${statut}">💬 ${d.commentaire}</div>`
+      : '';
+
+    const traiteHtml = d.traitePar
+      ? `<div class="d-traite">Traité par ${d.traitePar} · ${new Date(d.traiteAt).toLocaleDateString('fr-FR', {day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</div>`
+      : '';
+
+    const el = document.createElement('div');
+    el.className = 'demande-item ' + statut;
+    el.innerHTML = `
+      <div class="d-header">
+        <div class="d-type">${typeLabel}</div>
+        <span class="badge-statut ${statut}">${statutLabel}</span>
+      </div>
+      <div class="d-detail">
+        <span>📅 ${periode}</span>
+        <span>🕐 Déposée le ${dateDepot}</span>
+      </div>
+      <div class="d-motif">${d.motif}</div>
+      ${commentaireHtml}
+      ${traiteHtml}
+    `;
+    div.appendChild(el);
+  });
+}
+
+function formaterDate(str) {
+  if (!str) return '—';
+  const parts = str.split('-');
+  if (parts.length === 3) return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  return str;
+}
+
+// Pré-remplir l'ID depuis l'URL si ?id=XXX
+const params = new URLSearchParams(window.location.search);
+if (params.get('id')) {
+  document.getElementById('input-id').value = params.get('id');
+  chercher();
+}
+</script>
+</body>
+</html>
