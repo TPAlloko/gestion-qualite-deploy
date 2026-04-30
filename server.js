@@ -121,6 +121,19 @@ async function initDB() {
     CREATE INDEX IF NOT EXISTS idx_push_subs_agent    ON push_subscriptions(agent_id);
   `);
 
+  // Migration : fusionner agents en double (BO006→BO05, BO016→BO09)
+  await pool.query(`
+    UPDATE demandes  SET agent_id='BO05', nom='Candide FOTIENHORO'                          WHERE agent_id='BO006';
+    UPDATE pointages SET agent_id='BO05', nom='FOTIENHORO', prenom='Candide', nom_complet='Candide FOTIENHORO' WHERE agent_id='BO006';
+    DELETE FROM push_subscriptions WHERE agent_id='BO006';
+    DELETE FROM agents WHERE id='BO006';
+
+    UPDATE demandes  SET agent_id='BO09', nom='Hawa OUATTARA'                               WHERE agent_id='BO016';
+    UPDATE pointages SET agent_id='BO09', nom='OUATTARA',   prenom='Hawa',    nom_complet='Hawa OUATTARA'    WHERE agent_id='BO016';
+    DELETE FROM push_subscriptions WHERE agent_id='BO016';
+    DELETE FROM agents WHERE id='BO016';
+  `).catch(() => {});   // silencieux si déjà fait
+
   // Synchroniser les noms dans les pointages si un agent a été renommé
   await pool.query(`
     UPDATE pointages p
@@ -533,6 +546,27 @@ app.patch('/api/demandes/:id', requireAuth, requireAdmin, async (req, res) => {
 app.delete('/api/demandes/:id', requireAuth, requireAdmin, async (req, res) => {
   await pool.query('DELETE FROM demandes WHERE id = $1', [req.params.id]);
   res.json({ ok: true });
+});
+
+// Saisie manuelle d'une absence/permission par l'admin (directement approuvée)
+app.post('/api/admin/demande-manuelle', requireAuth, requireAdmin, async (req, res) => {
+  const { agentId, type, dateDebut, dateFin, heure, motif } = req.body;
+  if (!agentId || !type || !dateDebut || !motif)
+    return res.status(400).json({ erreur: 'Champs obligatoires manquants.' });
+  const { rows: ag } = await pool.query('SELECT * FROM agents WHERE id=$1', [agentId.toUpperCase()]);
+  if (!ag.length) return res.status(404).json({ erreur: 'Agent introuvable.' });
+  const a = ag[0];
+  const demandeId = randomUUID();
+  await pool.query(
+    `INSERT INTO demandes
+       (id, agent_id, nom, service, type, date_debut, date_fin, heure, motif,
+        statut, commentaire, traite_par, traite_at, source, created_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'approuve','Saisie manuelle',$10,NOW(),'admin',NOW())`,
+    [demandeId, a.id, a.nom_complet || `${a.prenom} ${a.nom}`, a.service,
+     type, dateDebut, dateFin || null, heure || null, motif, req.session.user.nom]
+  );
+  const { rows } = await pool.query('SELECT * FROM demandes WHERE id=$1', [demandeId]);
+  res.json({ ok: true, demande: rowToDemande(rows[0]) });
 });
 
 // Télécharger une pièce jointe depuis la DB

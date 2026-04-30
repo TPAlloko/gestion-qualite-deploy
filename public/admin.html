@@ -595,6 +595,7 @@
           <option value="approuve">Approuvées</option>
           <option value="refuse">Refusées</option>
         </select>
+        <button class="btn btn-primary btn-sm" onclick="ouvrirSaisieManuelle()">➕ Saisie manuelle</button>
         <button class="btn btn-outline btn-sm" onclick="chargerDemandes()">Actualiser</button>
       </div>
     </div>
@@ -642,6 +643,54 @@
           <tr><td colspan="8" style="text-align:center;color:#ccc;padding:30px;">Chargement...</td></tr>
         </tbody>
       </table>
+    </div>
+  </div>
+
+  <!-- Modal saisie manuelle -->
+  <div id="modal-saisie-manuelle" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:200;align-items:center;justify-content:center;">
+    <div style="background:white;border-radius:16px;padding:28px;max-width:500px;width:92%;box-shadow:0 12px 40px rgba(0,0,0,0.2);max-height:90vh;overflow-y:auto;">
+      <h3 style="color:var(--bleu);margin-bottom:4px;">Saisie manuelle</h3>
+      <p style="font-size:0.82rem;color:#888;margin-bottom:20px;">Créée directement approuvée — pour les absences hors système.</p>
+      <div style="display:flex;flex-direction:column;gap:13px;">
+        <div class="form-group">
+          <label>Agent *</label>
+          <select id="sm-agent" style="padding:9px 12px;border:1.5px solid #dde6ef;border-radius:8px;width:100%;font-size:0.88rem;">
+            <option value="">— Sélectionner —</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Type *</label>
+          <select id="sm-type" onchange="majChampsSM()" style="padding:9px 12px;border:1.5px solid #dde6ef;border-radius:8px;width:100%;font-size:0.88rem;">
+            <option value="absence">🤒 Absence / Maladie</option>
+            <option value="permission">🚪 Permission de sortie</option>
+            <option value="conge">🏖️ Congé</option>
+            <option value="retard">⏰ Retard prévu</option>
+          </select>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          <div class="form-group">
+            <label id="sm-label-debut">Date de début *</label>
+            <input type="date" id="sm-date-debut" style="padding:9px 12px;border:1.5px solid #dde6ef;border-radius:8px;width:100%;font-size:0.88rem;" />
+          </div>
+          <div class="form-group" id="sm-bloc-fin">
+            <label>Date de fin</label>
+            <input type="date" id="sm-date-fin" style="padding:9px 12px;border:1.5px solid #dde6ef;border-radius:8px;width:100%;font-size:0.88rem;" />
+          </div>
+          <div class="form-group" id="sm-bloc-heure" style="display:none;">
+            <label>Heure</label>
+            <input type="time" id="sm-heure" style="padding:9px 12px;border:1.5px solid #dde6ef;border-radius:8px;width:100%;font-size:0.88rem;" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Motif *</label>
+          <textarea id="sm-motif" rows="2" style="padding:9px 12px;border:1.5px solid #dde6ef;border-radius:8px;width:100%;font-family:inherit;font-size:0.88rem;resize:vertical;" placeholder="Raison de l'absence..."></textarea>
+        </div>
+        <div id="sm-msg" style="display:none;padding:8px 12px;border-radius:8px;font-size:0.84rem;"></div>
+      </div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px;">
+        <button class="btn" style="background:#eee;color:#444;" onclick="fermerSaisieManuelle()">Annuler</button>
+        <button class="btn btn-success" onclick="enregistrerSaisieManuelle()">✅ Enregistrer</button>
+      </div>
     </div>
   </div>
 
@@ -1605,6 +1654,77 @@ socket.on('nouvelle-demande', (d) => {
     heure: new Date(d.createdAt).toLocaleTimeString('fr-FR', {hour:'2-digit',minute:'2-digit'})
   });
 });
+
+// ── Saisie manuelle ──
+async function ouvrirSaisieManuelle() {
+  const agents = await fetch('/api/agents').then(r=>r.json()).catch(()=>[]);
+  const sel = document.getElementById('sm-agent');
+  sel.innerHTML = '<option value="">— Sélectionner —</option>';
+  const ordre = { 'Superviseur':0, 'Back Office':1, 'Call Center':2 };
+  agents.sort((a,b)=>(ordre[a.service]??9)-(ordre[b.service]??9)||(a.nom_complet||a.prenom+' '+a.nom).localeCompare(b.nom_complet||b.prenom+' '+b.nom));
+  agents.forEach(a => {
+    const nom = a.nom_complet || `${a.prenom} ${a.nom}`;
+    sel.innerHTML += `<option value="${a.id}">[${a.id}] ${nom} — ${a.service||a.poste}</option>`;
+  });
+  // Pré-remplir date d'aujourd'hui
+  const today = new Date().toISOString().split('T')[0];
+  document.getElementById('sm-date-debut').value = today;
+  document.getElementById('sm-date-fin').value = today;
+  document.getElementById('sm-motif').value = '';
+  document.getElementById('sm-msg').style.display = 'none';
+  majChampsSM();
+  document.getElementById('modal-saisie-manuelle').style.display = 'flex';
+}
+
+function fermerSaisieManuelle() {
+  document.getElementById('modal-saisie-manuelle').style.display = 'none';
+}
+
+function majChampsSM() {
+  const type = document.getElementById('sm-type').value;
+  const blocFin   = document.getElementById('sm-bloc-fin');
+  const blocHeure = document.getElementById('sm-bloc-heure');
+  if (type === 'permission' || type === 'retard') {
+    blocFin.style.display = 'none';
+    blocHeure.style.display = 'block';
+  } else {
+    blocFin.style.display = 'block';
+    blocHeure.style.display = 'none';
+  }
+}
+
+async function enregistrerSaisieManuelle() {
+  const agentId   = document.getElementById('sm-agent').value;
+  const type      = document.getElementById('sm-type').value;
+  const dateDebut = document.getElementById('sm-date-debut').value;
+  const dateFin   = document.getElementById('sm-date-fin').value;
+  const heure     = document.getElementById('sm-heure').value;
+  const motif     = document.getElementById('sm-motif').value.trim();
+  const msg       = document.getElementById('sm-msg');
+
+  if (!agentId || !dateDebut || !motif) {
+    msg.style.cssText = 'display:block;background:#fde8e8;color:#c0392b;padding:8px 12px;border-radius:8px;font-size:0.84rem;';
+    msg.textContent = '⚠️ Agent, date et motif sont obligatoires.';
+    return;
+  }
+
+  const resp = await fetch('/api/admin/demande-manuelle', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ agentId, type, dateDebut,
+      dateFin: (type === 'absence' || type === 'conge') ? dateFin : null,
+      heure: (type === 'permission' || type === 'retard') ? heure : null,
+      motif })
+  });
+  const data = await resp.json();
+  if (data.ok) {
+    fermerSaisieManuelle();
+    chargerDemandes();
+  } else {
+    msg.style.cssText = 'display:block;background:#fde8e8;color:#c0392b;padding:8px 12px;border-radius:8px;font-size:0.84rem;';
+    msg.textContent = '⚠️ ' + (data.erreur || 'Erreur');
+  }
+}
 
 // ── Rapport RH ──
 let _rapportRHData = null;
