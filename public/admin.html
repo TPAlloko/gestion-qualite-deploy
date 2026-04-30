@@ -1780,10 +1780,14 @@ async function genererRapportRH() {
   const au = document.getElementById('rapport-au').value;
   const filtreService = document.getElementById('rapport-service').value;
 
-  // Source : pointages (présences réelles) + demandes (permissions formelles)
-  const [agentsList, tousPointages, toutesDemandes] = await Promise.all([
+  // Source : pointages filtrés serveur-side + demandes + agents
+  const ptParams = new URLSearchParams();
+  if (du) ptParams.set('du', du);
+  if (au) ptParams.set('au', au);
+
+  const [agentsList, ptsPeriode, toutesDemandes] = await Promise.all([
     fetch('/api/agents').then(r => r.json()).catch(() => []),
-    fetch('/api/pointages').then(r => r.json()).catch(() => []),
+    fetch('/api/pointages?' + ptParams).then(r => r.json()).catch(() => []),
     fetch('/api/demandes').then(r => r.json()).catch(() => [])
   ]);
 
@@ -1804,13 +1808,7 @@ async function genererRapportRH() {
     .filter(a => !filtreService || serviceParAgent[a.id] === filtreService)
     .sort((a, b) => (a.nom_complet || `${a.prenom} ${a.nom}`).localeCompare(b.nom_complet || `${b.prenom} ${b.nom}`));
 
-  // Filtrer pointages sur la période (dates stockées en DD/MM/YYYY)
-  const ptsPeriode = tousPointages.filter(p => {
-    const iso = ptDateISO(p.date);
-    return (!du || iso >= du) && (!au || iso <= au);
-  });
-
-  // Nombre de jours ouvrés : dates distinctes où quelqu'un a badgé
+  // Nombre de jours ouvrés : dates distinctes où quelqu'un a badgé (déjà filtrés par serveur)
   const nbJ = new Set(ptsPeriode.map(p => p.date)).size || 1;
 
   // Demandes dans la période

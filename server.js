@@ -267,6 +267,8 @@ app.get('/api/pointages', async (req, res) => {
   const params = [];
   if (req.query.date)    { params.push(req.query.date);    query += ` AND date = $${params.length}`; }
   if (req.query.agentId) { params.push(req.query.agentId); query += ` AND agent_id = $${params.length}`; }
+  if (req.query.du) { params.push(req.query.du); query += ` AND timestamp::date >= $${params.length}::date`; }
+  if (req.query.au) { params.push(req.query.au); query += ` AND timestamp::date <= $${params.length}::date`; }
   query += ' ORDER BY timestamp DESC';
   if (req.query.limit) {
     params.push(Math.min(parseInt(req.query.limit) || 100, 1000));
