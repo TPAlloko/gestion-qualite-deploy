@@ -1609,11 +1609,21 @@ async function genererRapportRH() {
   if (!typesInclus.length) { alert('Sélectionnez au moins un type.'); return; }
 
   const url = '/api/demandes' + (filtreStatut ? '?statut=' + filtreStatut : '');
-  const toutes = await fetch(url).then(r => r.json()).catch(() => []);
+  const [toutes, agentsList] = await Promise.all([
+    fetch(url).then(r => r.json()).catch(() => []),
+    fetch('/api/agents').then(r => r.json()).catch(() => [])
+  ]);
+
+  // Carte agentId → service réel (depuis la table agents, fiable)
+  const serviceParAgent = {};
+  agentsList.forEach(a => { serviceParAgent[a.id] = a.service || ''; });
 
   const filtrees = toutes.filter(d => {
     if (!typesInclus.includes(d.type)) return false;
-    if (filtreService && d.service !== filtreService) return false;
+    if (filtreService) {
+      const svc = serviceParAgent[d.agentId] || d.service || '';
+      if (svc !== filtreService) return false;
+    }
     const date = d.dateDebut;
     if (!date) return false;
     if (du && date < du) return false;
@@ -1624,7 +1634,8 @@ async function genererRapportRH() {
   const parAgent = {};
   filtrees.forEach(d => {
     if (!parAgent[d.agentId]) {
-      parAgent[d.agentId] = { agentId: d.agentId, nom: d.nom, service: d.service || '—', absences: [], permissions: [], conges: [] };
+      const svcReel = serviceParAgent[d.agentId] || d.service || '—';
+      parAgent[d.agentId] = { agentId: d.agentId, nom: d.nom, service: svcReel, absences: [], permissions: [], conges: [] };
     }
     if      (d.type === 'absence')    parAgent[d.agentId].absences.push(d);
     else if (d.type === 'permission') parAgent[d.agentId].permissions.push(d);
