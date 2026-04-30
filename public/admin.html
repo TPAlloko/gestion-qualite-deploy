@@ -1586,6 +1586,42 @@ function fmtDateRH(str) {
   return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : str;
 }
 
+function _normNom(nom) {
+  return (nom || '').toUpperCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^A-Z\s]/g, '').trim().replace(/\s+/g, ' ');
+}
+
+function fusionnerAgentsDoublons(parAgent) {
+  const agents = Object.values(parAgent);
+  const supprime = new Set();
+
+  for (let i = 0; i < agents.length; i++) {
+    if (supprime.has(agents[i].agentId)) continue;
+    const nA = _normNom(agents[i].nom);
+
+    for (let j = i + 1; j < agents.length; j++) {
+      if (supprime.has(agents[j].agentId)) continue;
+      const nB = _normNom(agents[j].nom);
+
+      // L'un est préfixe strict de l'autre (ex: "KONAN MARC" vs "KONAN MARC OLIVIER")
+      const [court, long, nCourt, nLong] = nA.length <= nB.length
+        ? [agents[i], agents[j], nA, nB]
+        : [agents[j], agents[i], nB, nA];
+
+      if (nLong === nCourt || nLong.startsWith(nCourt + ' ')) {
+        // Fusionner les demandes du doublon dans le plus court
+        court.absences.push(...long.absences);
+        court.permissions.push(...long.permissions);
+        court.conges.push(...long.conges);
+        supprime.add(long.agentId);
+      }
+    }
+  }
+
+  supprime.forEach(id => delete parAgent[id]);
+}
+
 (function initRapportDates() {
   const now = new Date();
   const y = now.getFullYear(), m = now.getMonth();
@@ -1641,6 +1677,9 @@ async function genererRapportRH() {
     else if (d.type === 'permission') parAgent[d.agentId].permissions.push(d);
     else if (d.type === 'conge')      parAgent[d.agentId].conges.push(d);
   });
+
+  // Fusionner les agents en double (même nom raccourci vs nom complet)
+  fusionnerAgentsDoublons(parAgent);
 
   _rapportRHData = { parAgent, du, au, filtreStatut };
 
