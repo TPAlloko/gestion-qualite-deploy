@@ -515,7 +515,7 @@
           <option value="Superviseur">Superviseur</option>
         </select>
       </div>
-      <button class="btn btn-primary" onclick="genererRapportRH()" style="align-self:flex-end;padding:10px 22px;">
+      <button class="btn btn-primary" id="btn-generer-rh" onclick="genererRapportRH()" style="align-self:flex-end;padding:10px 22px;">
         📊 Générer
       </button>
     </div>
@@ -1780,15 +1780,21 @@ async function genererRapportRH() {
   const au = document.getElementById('rapport-au').value;
   const filtreService = document.getElementById('rapport-service').value;
 
-  // Source : pointages filtrés serveur-side + demandes + agents
-  const ptParams = new URLSearchParams();
-  if (du) ptParams.set('du', du);
-  if (au) ptParams.set('au', au);
+  // Spinner
+  const btnRH = document.getElementById('btn-generer-rh');
+  btnRH.disabled = true;
+  btnRH.textContent = '⏳ Chargement…';
+
+  try {
+
+  const params = new URLSearchParams();
+  if (du) params.set('du', du);
+  if (au) params.set('au', au);
 
   const [agentsList, ptsPeriode, toutesDemandes] = await Promise.all([
     fetch('/api/agents').then(r => r.json()).catch(() => []),
-    fetch('/api/pointages?' + ptParams).then(r => r.json()).catch(() => []),
-    fetch('/api/demandes').then(r => r.json()).catch(() => [])
+    fetch('/api/pointages?' + params).then(r => r.json()).catch(() => []),
+    fetch('/api/demandes?' + params).then(r => r.json()).catch(() => [])
   ]);
 
   // Carte agentId → service réel + fallback poste
@@ -1868,7 +1874,7 @@ async function genererRapportRH() {
     tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#ccc;padding:30px;">Aucun agent sur cette période</td></tr>';
     document.getElementById('rapport-resultats').style.display = 'block';
     document.getElementById('rapport-resultats').scrollIntoView({ behavior:'smooth', block:'start' });
-    return;
+    return; // le finally s'exécute quand même
   }
 
   rapport.forEach(a => {
@@ -1901,6 +1907,11 @@ async function genererRapportRH() {
 
   document.getElementById('rapport-resultats').style.display = 'block';
   document.getElementById('rapport-resultats').scrollIntoView({ behavior:'smooth', block:'start' });
+
+  } finally {
+    btnRH.disabled = false;
+    btnRH.textContent = '📊 Générer';
+  }
 }
 
 async function exporterRapportRHExcel() {

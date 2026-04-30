@@ -517,6 +517,8 @@ app.get('/api/demandes', requireAuth, async (req, res) => {
   let query = 'SELECT * FROM demandes WHERE 1=1';
   const params = [];
   if (req.query.statut) { params.push(req.query.statut); query += ` AND statut = $${params.length}`; }
+  if (req.query.du) { params.push(req.query.du); query += ` AND date_debut >= $${params.length}`; }
+  if (req.query.au) { params.push(req.query.au); query += ` AND date_debut <= $${params.length}`; }
   query += ' ORDER BY created_at DESC';
   if (req.query.limit) {
     params.push(Math.min(parseInt(req.query.limit) || 50, 500));
