@@ -1200,20 +1200,57 @@ async function chargerRecap() {
   const nbJ = jours.size || 1;
   const tbody = document.getElementById('tbody-recap');
   tbody.innerHTML = '';
+
+  // Ordre d'affichage des postes
+  const ordrePoste = { 'Superviseur': 0, 'Responsable Qualité': 1, 'Agent Back Office': 2, 'Agent Call Center': 3 };
+  const groupes = {};
   agents.forEach(a => {
-    const entrees = pts.filter(p => p.agentId === a.id && p.type === 'entree');
-    const retards = entrees.filter(p => isRetard(p)).length;
-    const presences = entrees.length;
-    const absences = Math.max(0, nbJ - presences);
-    const taux = ((presences/nbJ)*100).toFixed(1);
+    const p = a.poste || 'Autre';
+    if (!groupes[p]) groupes[p] = [];
+    groupes[p].push(a);
+  });
+
+  const postesTriees = Object.keys(groupes).sort((a, b) =>
+    (ordrePoste[a] ?? 99) - (ordrePoste[b] ?? 99)
+  );
+
+  const icones = { 'Superviseur': '👔', 'Responsable Qualité': '📋', 'Agent Back Office': '🏢', 'Agent Call Center': '📞' };
+
+  postesTriees.forEach(poste => {
+    const liste = groupes[poste].sort((a, b) =>
+      (a.nom_complet || `${a.prenom} ${a.nom}`).localeCompare(b.nom_complet || `${b.prenom} ${b.nom}`)
+    );
+
+    // Ligne d'en-tête du groupe
     tbody.innerHTML += `<tr>
-      <td><div class="agent-cell"><div class="avatar-sm">${(a.prenom[0]||'')+(a.nom[0]||'')}</div><div><div class="nom">${a.prenom} ${a.nom}</div></div></div></td>
-      <td>${a.poste}</td>
-      <td><strong style="color:#27ae60;">${presences}</strong></td>
-      <td><strong style="color:#e74c3c;">${absences}</strong></td>
-      <td><strong style="color:#e67e22;">${retards}</strong></td>
-      <td><strong>${taux}%</strong></td>
+      <td colspan="6" style="background:#f0f7fc;padding:8px 14px;font-size:0.76rem;font-weight:700;
+          color:#1A5676;text-transform:uppercase;letter-spacing:0.5px;border-top:2px solid #e0ecf8;">
+        ${icones[poste] || '👤'} ${poste} — ${liste.length} agent${liste.length > 1 ? 's' : ''}
+      </td>
     </tr>`;
+
+    liste.forEach(a => {
+      const nomAffiche = a.nom_complet || `${a.prenom} ${a.nom}`;
+      const init = nomAffiche.split(' ').filter(w=>w).map(w=>w[0]).slice(0,2).join('').toUpperCase();
+      const avatarStyle = (a.service || '').includes('Call Center')
+        ? 'background:linear-gradient(135deg,#e67e22,#f39c12);' : '';
+      const entrees = pts.filter(p => p.agentId === a.id && p.type === 'entree');
+      const retards = entrees.filter(p => isRetard(p)).length;
+      const presences = entrees.length;
+      const absences = Math.max(0, nbJ - presences);
+      const taux = ((presences/nbJ)*100).toFixed(1);
+      tbody.innerHTML += `<tr>
+        <td><div class="agent-cell">
+          <div class="avatar-sm" style="${avatarStyle}">${init}</div>
+          <div><div class="nom">${nomAffiche}</div></div>
+        </div></td>
+        <td style="font-size:0.8rem;color:#666;">${a.poste}</td>
+        <td><strong style="color:#27ae60;">${presences}</strong></td>
+        <td><strong style="color:#e74c3c;">${absences}</strong></td>
+        <td><strong style="color:#e67e22;">${retards}</strong></td>
+        <td><strong>${taux}%</strong></td>
+      </tr>`;
+    });
   });
 }
 
