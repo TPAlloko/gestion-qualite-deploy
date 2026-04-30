@@ -1587,9 +1587,12 @@ function fmtDateRH(str) {
 }
 
 function _normNom(nom) {
-  return (nom || '').toUpperCase()
-    .normalize('NFD').replace(/[̀-ͯ]/g, '')
-    .replace(/[^A-Z\s]/g, '').trim().replace(/\s+/g, ' ');
+  return (nom || '')
+    .toUpperCase()
+    .normalize('NFD').replace(/\p{Mn}/gu, '')   // supprime tous les accents (unicode property)
+    .replace(/[-]/g, ' ')                        // tirets → espaces
+    .replace(/[^A-Z\s]/g, '')
+    .trim().replace(/\s+/g, ' ');
 }
 
 function fusionnerAgentsDoublons(parAgent) {
@@ -1599,18 +1602,18 @@ function fusionnerAgentsDoublons(parAgent) {
   for (let i = 0; i < agents.length; i++) {
     if (supprime.has(agents[i].agentId)) continue;
     const nA = _normNom(agents[i].nom);
+    if (nA.length < 5) continue;
 
     for (let j = i + 1; j < agents.length; j++) {
       if (supprime.has(agents[j].agentId)) continue;
       const nB = _normNom(agents[j].nom);
+      if (nB.length < 5) continue;
 
-      // L'un est préfixe strict de l'autre (ex: "KONAN MARC" vs "KONAN MARC OLIVIER")
       const [court, long, nCourt, nLong] = nA.length <= nB.length
         ? [agents[i], agents[j], nA, nB]
         : [agents[j], agents[i], nB, nA];
 
       if (nLong === nCourt || nLong.startsWith(nCourt + ' ')) {
-        // Fusionner les demandes du doublon dans le plus court
         court.absences.push(...long.absences);
         court.permissions.push(...long.permissions);
         court.conges.push(...long.conges);
@@ -1650,9 +1653,19 @@ async function genererRapportRH() {
     fetch('/api/agents').then(r => r.json()).catch(() => [])
   ]);
 
-  // Carte agentId → service réel (depuis la table agents, fiable)
+  // Carte agentId → service réel (avec fallback depuis le poste si service vide)
   const serviceParAgent = {};
-  agentsList.forEach(a => { serviceParAgent[a.id] = a.service || ''; });
+  const agentMap = {};
+  agentsList.forEach(a => {
+    agentMap[a.id] = a;
+    let svc = a.service || '';
+    if (!svc && a.poste) {
+      if (a.poste.includes('Back Office')) svc = 'Back Office';
+      else if (a.poste.includes('Call Center')) svc = 'Call Center';
+      else if (a.poste === 'Superviseur') svc = 'Superviseur';
+    }
+    serviceParAgent[a.id] = svc;
+  });
 
   const filtrees = toutes.filter(d => {
     if (!typesInclus.includes(d.type)) return false;
@@ -1670,8 +1683,10 @@ async function genererRapportRH() {
   const parAgent = {};
   filtrees.forEach(d => {
     if (!parAgent[d.agentId]) {
+      const inf = agentMap[d.agentId];
       const svcReel = serviceParAgent[d.agentId] || d.service || '—';
-      parAgent[d.agentId] = { agentId: d.agentId, nom: d.nom, service: svcReel, absences: [], permissions: [], conges: [] };
+      const nomReel = inf ? (inf.nom_complet || `${inf.prenom} ${inf.nom}`) : d.nom;
+      parAgent[d.agentId] = { agentId: d.agentId, nom: nomReel, service: svcReel, absences: [], permissions: [], conges: [] };
     }
     if      (d.type === 'absence')    parAgent[d.agentId].absences.push(d);
     else if (d.type === 'permission') parAgent[d.agentId].permissions.push(d);
