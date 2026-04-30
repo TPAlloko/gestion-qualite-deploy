@@ -506,28 +506,6 @@
         <label>Au</label>
         <input type="date" id="rapport-au" style="padding:9px 12px;border:1.5px solid #dde6ef;border-radius:8px;font-size:0.86rem;width:100%;" />
       </div>
-      <div class="form-group">
-        <label>Types</label>
-        <div style="display:flex;gap:14px;align-items:center;padding-top:6px;">
-          <label style="display:flex;gap:6px;align-items:center;font-size:0.86rem;cursor:pointer;user-select:none;">
-            <input type="checkbox" id="rapport-type-absence" checked /> 🤒 Absences
-          </label>
-          <label style="display:flex;gap:6px;align-items:center;font-size:0.86rem;cursor:pointer;user-select:none;">
-            <input type="checkbox" id="rapport-type-permission" checked /> 🚪 Permissions
-          </label>
-          <label style="display:flex;gap:6px;align-items:center;font-size:0.86rem;cursor:pointer;user-select:none;">
-            <input type="checkbox" id="rapport-type-conge" /> 🏖️ Congés
-          </label>
-        </div>
-      </div>
-      <div class="form-group" style="min-width:175px;">
-        <label>Statut</label>
-        <select id="rapport-statut" style="padding:9px 12px;border:1.5px solid #dde6ef;border-radius:8px;font-size:0.86rem;width:100%;background:white;">
-          <option value="approuve">Approuvées seulement</option>
-          <option value="">Toutes les demandes</option>
-          <option value="en_attente">En attente seulement</option>
-        </select>
-      </div>
       <div class="form-group" style="min-width:145px;">
         <label>Service</label>
         <select id="rapport-service" style="padding:9px 12px;border:1.5px solid #dde6ef;border-radius:8px;font-size:0.86rem;width:100%;background:white;">
@@ -550,19 +528,18 @@
             <tr>
               <th>Agent</th>
               <th>Service</th>
+              <th>Présences</th>
               <th>Absences</th>
-              <th>Jours abs.</th>
-              <th>Justificatifs</th>
+              <th>Retards</th>
+              <th>Taux</th>
               <th>Permissions</th>
-              <th>Congés</th>
-              <th></th>
             </tr>
           </thead>
           <tbody id="tbody-rapport"></tbody>
         </table>
       </div>
-      <div style="margin-top:14px;display:flex;gap:10px;">
-        <button class="btn btn-success btn-sm" onclick="exporterRapportRHExcel()">📊 Exporter Excel (Synthèse + Détail)</button>
+      <div style="margin-top:14px;">
+        <button class="btn btn-success btn-sm" onclick="exporterRapportRHExcel()">📊 Exporter Excel</button>
       </div>
     </div>
   </div>
@@ -1789,32 +1766,29 @@ function fusionnerAgentsDoublons(parAgent) {
   document.getElementById('rapport-au').value = new Date(y, m + 1, 0).toISOString().split('T')[0];
 })();
 
+// Convertit "DD/MM/YYYY" (format stocké dans pointages) → "YYYY-MM-DD" pour comparaison
+function ptDateISO(ddmmyyyy) {
+  if (!ddmmyyyy) return '';
+  const p = ddmmyyyy.split('/');
+  if (p.length === 3) return `${p[2]}-${p[1].padStart(2,'0')}-${p[0].padStart(2,'0')}`;
+  return ddmmyyyy; // déjà en ISO
+}
+
 async function genererRapportRH() {
   const du = document.getElementById('rapport-du').value;
   const au = document.getElementById('rapport-au').value;
-  const filtreStatut  = document.getElementById('rapport-statut').value;
   const filtreService = document.getElementById('rapport-service').value;
-  const inclAbs  = document.getElementById('rapport-type-absence').checked;
-  const inclPerm = document.getElementById('rapport-type-permission').checked;
-  const inclCong = document.getElementById('rapport-type-conge').checked;
 
-  const typesInclus = [];
-  if (inclAbs)  typesInclus.push('absence');
-  if (inclPerm) typesInclus.push('permission');
-  if (inclCong) typesInclus.push('conge');
-  if (!typesInclus.length) { alert('Sélectionnez au moins un type.'); return; }
-
-  const url = '/api/demandes' + (filtreStatut ? '?statut=' + filtreStatut : '');
-  const [toutes, agentsList] = await Promise.all([
-    fetch(url).then(r => r.json()).catch(() => []),
-    fetch('/api/agents').then(r => r.json()).catch(() => [])
+  // Source : pointages (présences réelles) + demandes (permissions formelles)
+  const [agentsList, tousPointages, toutesDemandes] = await Promise.all([
+    fetch('/api/agents').then(r => r.json()).catch(() => []),
+    fetch('/api/pointages').then(r => r.json()).catch(() => []),
+    fetch('/api/demandes').then(r => r.json()).catch(() => [])
   ]);
 
-  // Carte agentId → service réel (avec fallback depuis le poste si service vide)
+  // Carte agentId → service réel + fallback poste
   const serviceParAgent = {};
-  const agentMap = {};
   agentsList.forEach(a => {
-    agentMap[a.id] = a;
     let svc = a.service || '';
     if (!svc && a.poste) {
       if (a.poste.includes('Back Office')) svc = 'Back Office';
@@ -1824,44 +1798,46 @@ async function genererRapportRH() {
     serviceParAgent[a.id] = svc;
   });
 
-  const filtrees = toutes.filter(d => {
-    if (!typesInclus.includes(d.type)) return false;
-    if (filtreService) {
-      const svc = serviceParAgent[d.agentId] || d.service || '';
-      if (svc !== filtreService) return false;
-    }
-    const date = d.dateDebut;
-    if (!date) return false;
-    if (du && date < du) return false;
-    if (au && date > au) return false;
-    return true;
+  // Filtrer agents par service, triés par nom
+  const agentsFiltres = agentsList
+    .filter(a => !filtreService || serviceParAgent[a.id] === filtreService)
+    .sort((a, b) => (a.nom_complet || `${a.prenom} ${a.nom}`).localeCompare(b.nom_complet || `${b.prenom} ${b.nom}`));
+
+  // Filtrer pointages sur la période (dates stockées en DD/MM/YYYY)
+  const ptsPeriode = tousPointages.filter(p => {
+    const iso = ptDateISO(p.date);
+    return (!du || iso >= du) && (!au || iso <= au);
   });
 
-  const parAgent = {};
-  filtrees.forEach(d => {
-    if (!parAgent[d.agentId]) {
-      const inf = agentMap[d.agentId];
-      const svcReel = serviceParAgent[d.agentId] || d.service || '—';
-      const nomReel = inf ? (inf.nom_complet || `${inf.prenom} ${inf.nom}`) : d.nom;
-      parAgent[d.agentId] = { agentId: d.agentId, nom: nomReel, service: svcReel, absences: [], permissions: [], conges: [] };
-    }
-    if      (d.type === 'absence')    parAgent[d.agentId].absences.push(d);
-    else if (d.type === 'permission') parAgent[d.agentId].permissions.push(d);
-    else if (d.type === 'conge')      parAgent[d.agentId].conges.push(d);
+  // Nombre de jours ouvrés : dates distinctes où quelqu'un a badgé
+  const nbJ = new Set(ptsPeriode.map(p => p.date)).size || 1;
+
+  // Demandes formelles dans la période (permissions/congés non refusés)
+  const demandesPeriode = toutesDemandes.filter(d =>
+    d.dateDebut && (!du || d.dateDebut >= du) && (!au || d.dateDebut <= au) && d.statut !== 'refuse'
+  );
+
+  // Calcul par agent
+  const rapport = agentsFiltres.map(a => {
+    const entrees = ptsPeriode.filter(p => p.agentId === a.id && p.type === 'entree');
+    const presences = entrees.length;
+    const retards   = entrees.filter(p => isRetard(p)).length;
+    const absences  = Math.max(0, nbJ - presences);
+    const taux      = ((presences / nbJ) * 100).toFixed(1);
+    const permissions = demandesPeriode.filter(d =>
+      d.agentId === a.id && ['permission','conge','retard'].includes(d.type)
+    ).length;
+    return {
+      id: a.id,
+      nom: a.nom_complet || `${a.prenom} ${a.nom}`,
+      service: serviceParAgent[a.id] || '—',
+      presences, absences, retards, taux, permissions
+    };
   });
 
-  // Fusionner les agents en double (même nom raccourci vs nom complet)
-  fusionnerAgentsDoublons(parAgent);
+  _rapportRHData = { rapport, du, au, nbJ };
 
-  _rapportRHData = { parAgent, du, au, filtreStatut };
-
-  const agents       = Object.values(parAgent);
-  const totalAbs     = agents.reduce((s, a) => s + a.absences.length, 0);
-  const totalJours   = agents.reduce((s, a) => s + a.absences.reduce((j, d) => j + nbJoursRH(d.dateDebut, d.dateFin), 0), 0);
-  const totalPerms   = agents.reduce((s, a) => s + a.permissions.length, 0);
-  const avecJustif   = agents.reduce((s, a) => s + a.absences.filter(d => d.piecesJointes && d.piecesJointes.length > 0).length, 0);
-  const sansJustif   = totalAbs - avecJustif;
-
+  // KPIs
   const kpi = (val, label, bg, color) =>
     `<div style="background:${bg};border-radius:10px;padding:12px 18px;text-align:center;min-width:110px;">
        <div style="font-size:1.8rem;font-weight:800;color:${color};">${val}</div>
@@ -1869,163 +1845,60 @@ async function genererRapportRH() {
      </div>`;
 
   document.getElementById('rapport-kpis').innerHTML =
-    kpi(agents.length, 'Agents', '#f0f4f8', '#1A5676') +
-    kpi(totalAbs,      'Absences', '#fde8e8', '#c0392b') +
-    kpi(totalJours,    'Jours abs.', '#fef3cd', '#d68910') +
-    kpi(totalPerms,    'Permissions', '#fff3e0', '#e67e22') +
-    kpi(avecJustif,    'Avec justif.', '#d5f5e3', '#1e8449') +
-    kpi(sansJustif,    'Sans justif.', sansJustif > 0 ? '#fde8e8' : '#f0f4f8', sansJustif > 0 ? '#c0392b' : '#aaa');
+    kpi(rapport.length, 'Agents', '#f0f4f8', '#1A5676') +
+    kpi(nbJ, 'Jours ouvrés', '#edf7f0', '#1e8449') +
+    kpi(rapport.reduce((s,a)=>s+a.presences,0), 'Présences', '#d5f5e3', '#1e8449') +
+    kpi(rapport.reduce((s,a)=>s+a.absences,0),  'Absences',  '#fde8e8', '#c0392b') +
+    kpi(rapport.reduce((s,a)=>s+a.retards,0),   'Retards',   '#fef3cd', '#d68910');
 
   const tbody = document.getElementById('tbody-rapport');
   tbody.innerHTML = '';
 
-  if (!agents.length) {
-    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#ccc;padding:30px;">Aucune demande sur cette période</td></tr>';
+  if (!rapport.length) {
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#ccc;padding:30px;">Aucun agent sur cette période</td></tr>';
     document.getElementById('rapport-resultats').style.display = 'block';
     document.getElementById('rapport-resultats').scrollIntoView({ behavior:'smooth', block:'start' });
     return;
   }
 
-  agents.sort((a, b) => {
-    const scoreA = a.absences.length * 10 + a.permissions.length;
-    const scoreB = b.absences.length * 10 + b.permissions.length;
-    return scoreB - scoreA;
-  });
-
-  agents.forEach(a => {
-    const joursTotal = a.absences.reduce((j, d) => j + nbJoursRH(d.dateDebut, d.dateFin), 0);
-    const nbAvec = a.absences.filter(d => d.piecesJointes && d.piecesJointes.length > 0).length;
-    const nbSans = a.absences.length - nbAvec;
-
-    const justifCell = a.absences.length === 0
-      ? '<span style="color:#ccc;font-size:0.78rem;">—</span>'
-      : `<span style="color:#1e8449;font-weight:600;">✅ ${nbAvec} fourni${nbAvec > 1 ? 's' : ''}</span>` +
-        (nbSans > 0 ? `<br><span style="color:#c0392b;font-weight:600;font-size:0.78rem;">⚠️ ${nbSans} manquant${nbSans > 1 ? 's' : ''}</span>` : '');
-
+  rapport.forEach(a => {
     const svcBadge = a.service === 'Back Office'
       ? `<span class="badge" style="background:#eaf4fb;color:#1A5676;">🏢 BO</span>`
       : a.service === 'Call Center'
       ? `<span class="badge" style="background:#fff3e0;color:#e67e22;">📞 CC</span>`
       : `<span class="badge" style="background:#f3e8ff;color:#7c3aed;">👔 SUP</span>`;
 
-    const detailId = 'rh-det-' + a.agentId;
-    const toutesD = [...a.absences, ...a.permissions, ...a.conges]
-      .sort((x, y) => (x.dateDebut || '').localeCompare(y.dateDebut || ''));
+    const tauxColor = parseFloat(a.taux) >= 90 ? '#1e8449' : parseFloat(a.taux) >= 70 ? '#d68910' : '#c0392b';
 
-    const lignesDetail = toutesD.map(d => {
-      const icon = d.type === 'absence' ? '🤒' : d.type === 'permission' ? '🚪' : '🏖️';
-      const typeFr = d.type === 'absence' ? 'Absence' : d.type === 'permission' ? 'Permission' : 'Congé';
-      const nbJ = d.type === 'absence' ? nbJoursRH(d.dateDebut, d.dateFin) : null;
-      const periode = d.dateFin && d.dateFin !== d.dateDebut
-        ? `${fmtDateRH(d.dateDebut)} → ${fmtDateRH(d.dateFin)}`
-        : (d.heure ? `${fmtDateRH(d.dateDebut)} à ${d.heure}` : fmtDateRH(d.dateDebut));
-      const justifHtml = d.type === 'absence'
-        ? (d.piecesJointes && d.piecesJointes.length
-            ? d.piecesJointes.map((pj, idx) =>
-                `<a href="/api/demandes/${d.id}/pj/${idx}" target="_blank"
-                   style="font-size:0.72rem;background:#eaf4fb;color:#1A5676;border:1px solid #bee3f8;
-                          border-radius:6px;padding:2px 7px;text-decoration:none;display:inline-block;margin:1px;"
-                   title="${pj.nom}">📎 ${pj.nom.length > 20 ? pj.nom.substring(0,20)+'…' : pj.nom}</a>`
-              ).join('')
-            : '<span style="color:#e74c3c;font-size:0.78rem;">⚠️ Aucun justificatif</span>')
-        : '<span style="color:#ccc;font-size:0.78rem;">—</span>';
-      const statColor = d.statut === 'approuve' ? '#1e8449' : d.statut === 'refuse' ? '#c0392b' : '#d68910';
-      const statLabel = d.statut === 'approuve' ? '✅ Approuvé' : d.statut === 'refuse' ? '❌ Refusé' : '⏳ En attente';
-      return `<tr style="border-bottom:1px solid #f0f4f8;">
-        <td style="padding:7px 14px;font-size:0.8rem;">${icon} ${typeFr}${nbJ ? ` <span style="color:#888;">(${nbJ}j)</span>` : ''}</td>
-        <td style="padding:7px 14px;font-size:0.79rem;color:#555;">${periode}</td>
-        <td style="padding:7px 14px;font-size:0.79rem;color:#444;font-style:italic;max-width:200px;">${d.motif || '—'}</td>
-        <td style="padding:7px 14px;">${justifHtml}</td>
-        <td style="padding:7px 14px;font-size:0.79rem;font-weight:600;color:${statColor};">${statLabel}</td>
-      </tr>`;
-    }).join('');
-
-    tbody.innerHTML += `
-      <tr onclick="toggleRapportDetail('${detailId}')" style="cursor:pointer;" title="Cliquer pour voir le détail">
-        <td>
-          <div style="font-weight:700;font-size:0.88rem;">${a.nom}</div>
-          <div style="font-size:0.74rem;color:#aaa;">${a.agentId}</div>
-        </td>
-        <td>${svcBadge}</td>
-        <td><strong style="color:${a.absences.length > 0 ? '#c0392b' : '#ccc'};">${a.absences.length || '—'}</strong></td>
-        <td><strong style="color:${joursTotal > 0 ? '#d68910' : '#ccc'};">${joursTotal > 0 ? joursTotal + ' j' : '—'}</strong></td>
-        <td>${justifCell}</td>
-        <td><strong style="color:${a.permissions.length > 0 ? '#e67e22' : '#ccc'};">${a.permissions.length || '—'}</strong></td>
-        <td><strong>${a.conges.length || '—'}</strong></td>
-        <td><button class="btn btn-outline btn-sm" id="btn-${detailId}" onclick="event.stopPropagation();toggleRapportDetail('${detailId}')">▼ Détail</button></td>
-      </tr>
-      <tr id="${detailId}" style="display:none;">
-        <td colspan="8" style="padding:0;background:#f8fbfe;">
-          <table style="width:100%;border-collapse:collapse;">
-            <thead><tr style="background:#f0f7fc;">
-              <th style="padding:7px 14px;text-align:left;font-size:0.72rem;color:#4a6fa5;font-weight:700;text-transform:uppercase;letter-spacing:0.3px;">Type</th>
-              <th style="padding:7px 14px;text-align:left;font-size:0.72rem;color:#4a6fa5;font-weight:700;text-transform:uppercase;letter-spacing:0.3px;">Période</th>
-              <th style="padding:7px 14px;text-align:left;font-size:0.72rem;color:#4a6fa5;font-weight:700;text-transform:uppercase;letter-spacing:0.3px;">Motif</th>
-              <th style="padding:7px 14px;text-align:left;font-size:0.72rem;color:#4a6fa5;font-weight:700;text-transform:uppercase;letter-spacing:0.3px;">Justificatif</th>
-              <th style="padding:7px 14px;text-align:left;font-size:0.72rem;color:#4a6fa5;font-weight:700;text-transform:uppercase;letter-spacing:0.3px;">Statut</th>
-            </tr></thead>
-            <tbody>${lignesDetail}</tbody>
-          </table>
-        </td>
-      </tr>`;
+    tbody.innerHTML += `<tr>
+      <td><div style="font-weight:700;font-size:0.88rem;">${a.nom}</div><div style="font-size:0.74rem;color:#aaa;">${a.id}</div></td>
+      <td>${svcBadge}</td>
+      <td><strong style="color:#1e8449;">${a.presences}</strong></td>
+      <td><strong style="color:${a.absences > 0 ? '#c0392b' : '#ccc'};">${a.absences || '—'}</strong></td>
+      <td><strong style="color:${a.retards > 0 ? '#e67e22' : '#ccc'};">${a.retards || '—'}</strong></td>
+      <td><strong style="color:${tauxColor};">${a.taux}%</strong></td>
+      <td><strong style="color:${a.permissions > 0 ? '#1A5676' : '#ccc'};">${a.permissions || '—'}</strong></td>
+    </tr>`;
   });
 
   document.getElementById('rapport-resultats').style.display = 'block';
   document.getElementById('rapport-resultats').scrollIntoView({ behavior:'smooth', block:'start' });
 }
 
-function toggleRapportDetail(id) {
-  const el = document.getElementById(id);
-  const btn = document.getElementById('btn-' + id);
-  if (!el) return;
-  const visible = el.style.display !== 'none';
-  el.style.display = visible ? 'none' : 'table-row';
-  if (btn) btn.textContent = visible ? '▼ Détail' : '▲ Masquer';
-}
-
 async function exporterRapportRHExcel() {
   if (!_rapportRHData) return;
-  const { parAgent, du, au, filtreStatut } = _rapportRHData;
-  const agents = Object.values(parAgent);
+  const { rapport, du, au, nbJ } = _rapportRHData;
   const wb = XLSX.utils.book_new();
 
-  // Feuille 1 — Synthèse par agent
-  const synth = [['Nom', 'ID Agent', 'Service', 'Absences', 'Jours Absence', 'Avec justif.', 'Sans justif.', 'Permissions', 'Congés']];
-  agents.forEach(a => {
-    const j = a.absences.reduce((s, d) => s + nbJoursRH(d.dateDebut, d.dateFin), 0);
-    const av = a.absences.filter(d => d.piecesJointes && d.piecesJointes.length > 0).length;
-    synth.push([a.nom, a.agentId, a.service, a.absences.length, j, av, a.absences.length - av, a.permissions.length, a.conges.length]);
-  });
-  const wsSynth = XLSX.utils.aoa_to_sheet(synth);
-  wsSynth['!cols'] = [22,10,14,12,13,13,13,12,10].map(w => ({ wch: w }));
-  XLSX.utils.book_append_sheet(wb, wsSynth, 'Synthèse');
+  const rows = [['Nom', 'ID Agent', 'Service', `Jours ouvrés (${nbJ})`, 'Présences', 'Absences', 'Retards', 'Taux %', 'Permissions formelles']];
+  rapport.forEach(a => rows.push([a.nom, a.id, a.service, nbJ, a.presences, a.absences, a.retards, a.taux + '%', a.permissions]));
 
-  // Feuille 2 — Détail ligne par ligne
-  const typesFr = { absence:'Absence', permission:'Permission', conge:'Congé' };
-  const statFr  = { en_attente:'En attente', approuve:'Approuvé', refuse:'Refusé' };
-  const det = [['Nom', 'ID Agent', 'Service', 'Type', 'Date début', 'Date fin', 'Nb jours', 'Motif', 'Statut', 'Justificatif', 'Noms fichiers', 'Traité par', 'Commentaire']];
-  agents.forEach(a => {
-    [...a.absences, ...a.permissions, ...a.conges]
-      .sort((x, y) => (x.dateDebut || '').localeCompare(y.dateDebut || ''))
-      .forEach(d => {
-        const j = nbJoursRH(d.dateDebut, d.dateFin);
-        const hasJustif = d.type === 'absence'
-          ? (d.piecesJointes && d.piecesJointes.length > 0 ? 'Oui' : 'Non') : '—';
-        const nomsFichiers = d.piecesJointes && d.piecesJointes.length
-          ? d.piecesJointes.map(p => p.nom).join(', ') : '';
-        det.push([a.nom, a.agentId, a.service, typesFr[d.type] || d.type,
-          d.dateDebut || '', d.dateFin || '', d.type === 'absence' ? j : '',
-          d.motif || '', statFr[d.statut] || d.statut,
-          hasJustif, nomsFichiers, d.traitePar || '', d.commentaire || '']);
-      });
-  });
-  const wsDet = XLSX.utils.aoa_to_sheet(det);
-  wsDet['!cols'] = [22,10,14,12,12,12,9,32,12,12,25,15,30].map(w => ({ wch: w }));
-  XLSX.utils.book_append_sheet(wb, wsDet, 'Détail');
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols'] = [22,10,14,12,10,10,10,10,18].map(w => ({ wch: w }));
+  XLSX.utils.book_append_sheet(wb, ws, 'Rapport RH');
 
   const periode = du && au ? `_${du}_au_${au}` : '';
-  const tag = filtreStatut === 'approuve' ? '_approuvees' : '';
-  XLSX.writeFile(wb, `Rapport_RH${tag}${periode}.xlsx`);
+  XLSX.writeFile(wb, `Rapport_RH${periode}.xlsx`);
 }
 
 chargerStats();
