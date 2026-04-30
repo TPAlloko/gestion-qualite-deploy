@@ -532,6 +532,7 @@
               <th>Absences</th>
               <th>Retards</th>
               <th>Taux</th>
+              <th>Justif.</th>
               <th>Permissions</th>
             </tr>
           </thead>
@@ -1812,9 +1813,9 @@ async function genererRapportRH() {
   // Nombre de jours ouvrés : dates distinctes où quelqu'un a badgé
   const nbJ = new Set(ptsPeriode.map(p => p.date)).size || 1;
 
-  // Demandes formelles dans la période (permissions/congés non refusés)
+  // Demandes dans la période
   const demandesPeriode = toutesDemandes.filter(d =>
-    d.dateDebut && (!du || d.dateDebut >= du) && (!au || d.dateDebut <= au) && d.statut !== 'refuse'
+    d.dateDebut && (!du || d.dateDebut >= du) && (!au || d.dateDebut <= au)
   );
 
   // Calcul par agent
@@ -1824,14 +1825,25 @@ async function genererRapportRH() {
     const retards   = entrees.filter(p => isRetard(p)).length;
     const absences  = Math.max(0, nbJ - presences);
     const taux      = ((presences / nbJ) * 100).toFixed(1);
+
+    // Demandes d'absence de cet agent dans la période (hors refusées)
+    const demandesAbs = demandesPeriode.filter(d =>
+      d.agentId === a.id && d.type === 'absence' && d.statut !== 'refuse'
+    );
+    const avecJustif = demandesAbs.filter(d => d.piecesJointes && d.piecesJointes.length > 0).length;
+    const sansJustif = demandesAbs.length - avecJustif;
+
     const permissions = demandesPeriode.filter(d =>
-      d.agentId === a.id && ['permission','conge','retard'].includes(d.type)
+      d.agentId === a.id && ['permission','conge','retard'].includes(d.type) && d.statut !== 'refuse'
     ).length;
+
     return {
       id: a.id,
       nom: a.nom_complet || `${a.prenom} ${a.nom}`,
       service: serviceParAgent[a.id] || '—',
-      presences, absences, retards, taux, permissions
+      presences, absences, retards, taux,
+      avecJustif, sansJustif, demandesAbsTotal: demandesAbs.length,
+      permissions
     };
   });
 
@@ -1855,7 +1867,7 @@ async function genererRapportRH() {
   tbody.innerHTML = '';
 
   if (!rapport.length) {
-    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#ccc;padding:30px;">Aucun agent sur cette période</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#ccc;padding:30px;">Aucun agent sur cette période</td></tr>';
     document.getElementById('rapport-resultats').style.display = 'block';
     document.getElementById('rapport-resultats').scrollIntoView({ behavior:'smooth', block:'start' });
     return;
@@ -1870,6 +1882,13 @@ async function genererRapportRH() {
 
     const tauxColor = parseFloat(a.taux) >= 90 ? '#1e8449' : parseFloat(a.taux) >= 70 ? '#d68910' : '#c0392b';
 
+    const justifCell = a.absences === 0
+      ? '<span style="color:#ccc;font-size:0.78rem;">—</span>'
+      : a.demandesAbsTotal === 0
+      ? '<span style="color:#e67e22;font-size:0.78rem;">⚠️ Aucune demande</span>'
+      : (a.avecJustif > 0 ? `<span style="color:#1e8449;font-weight:600;">✅ ${a.avecJustif}</span>` : '') +
+        (a.sansJustif > 0 ? `${a.avecJustif > 0 ? ' ' : ''}<span style="color:#c0392b;font-weight:600;">⚠️ ${a.sansJustif} sans</span>` : '');
+
     tbody.innerHTML += `<tr>
       <td><div style="font-weight:700;font-size:0.88rem;">${a.nom}</div><div style="font-size:0.74rem;color:#aaa;">${a.id}</div></td>
       <td>${svcBadge}</td>
@@ -1877,6 +1896,7 @@ async function genererRapportRH() {
       <td><strong style="color:${a.absences > 0 ? '#c0392b' : '#ccc'};">${a.absences || '—'}</strong></td>
       <td><strong style="color:${a.retards > 0 ? '#e67e22' : '#ccc'};">${a.retards || '—'}</strong></td>
       <td><strong style="color:${tauxColor};">${a.taux}%</strong></td>
+      <td>${justifCell}</td>
       <td><strong style="color:${a.permissions > 0 ? '#1A5676' : '#ccc'};">${a.permissions || '—'}</strong></td>
     </tr>`;
   });
@@ -1890,11 +1910,11 @@ async function exporterRapportRHExcel() {
   const { rapport, du, au, nbJ } = _rapportRHData;
   const wb = XLSX.utils.book_new();
 
-  const rows = [['Nom', 'ID Agent', 'Service', `Jours ouvrés (${nbJ})`, 'Présences', 'Absences', 'Retards', 'Taux %', 'Permissions formelles']];
-  rapport.forEach(a => rows.push([a.nom, a.id, a.service, nbJ, a.presences, a.absences, a.retards, a.taux + '%', a.permissions]));
+  const rows = [['Nom', 'ID Agent', 'Service', `Jours ouvrés (${nbJ})`, 'Présences', 'Absences', 'Retards', 'Taux %', 'Avec justif.', 'Sans justif.', 'Permissions formelles']];
+  rapport.forEach(a => rows.push([a.nom, a.id, a.service, nbJ, a.presences, a.absences, a.retards, a.taux + '%', a.avecJustif, a.sansJustif, a.permissions]));
 
   const ws = XLSX.utils.aoa_to_sheet(rows);
-  ws['!cols'] = [22,10,14,12,10,10,10,10,18].map(w => ({ wch: w }));
+  ws['!cols'] = [22,10,14,12,10,10,10,10,12,12,18].map(w => ({ wch: w }));
   XLSX.utils.book_append_sheet(wb, ws, 'Rapport RH');
 
   const periode = du && au ? `_${du}_au_${au}` : '';
