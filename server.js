@@ -116,7 +116,7 @@ async function initDB() {
 
     CREATE INDEX IF NOT EXISTS idx_pointages_date      ON pointages(date);
     CREATE INDEX IF NOT EXISTS idx_pointages_agent_id  ON pointages(agent_id);
-    CREATE INDEX IF NOT EXISTS idx_pointages_ts_date   ON pointages ((timestamp::date));
+    CREATE INDEX IF NOT EXISTS idx_pointages_timestamp ON pointages(timestamp);
     CREATE INDEX IF NOT EXISTS idx_demandes_statut     ON demandes(statut);
     CREATE INDEX IF NOT EXISTS idx_demandes_agent_id   ON demandes(agent_id);
     CREATE INDEX IF NOT EXISTS idx_demandes_date_debut ON demandes(date_debut);
@@ -272,8 +272,8 @@ app.get('/api/pointages', async (req, res) => {
   const params = [];
   if (req.query.date)    { params.push(req.query.date);    query += ` AND date = $${params.length}`; }
   if (req.query.agentId) { params.push(req.query.agentId); query += ` AND agent_id = $${params.length}`; }
-  if (req.query.du) { params.push(req.query.du); query += ` AND timestamp::date >= $${params.length}::date`; }
-  if (req.query.au) { params.push(req.query.au); query += ` AND timestamp::date <= $${params.length}::date`; }
+  if (req.query.du) { params.push(req.query.du); query += ` AND timestamp >= $${params.length}::date`; }
+  if (req.query.au) { params.push(req.query.au); query += ` AND timestamp < ($${params.length}::date + interval '1 day')`; }
   query += ' ORDER BY timestamp DESC';
   const hasDateFilter = req.query.date || req.query.du || req.query.au;
   if (req.query.limit) {
