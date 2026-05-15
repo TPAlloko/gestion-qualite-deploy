@@ -1834,9 +1834,9 @@ async function genererRapportRH() {
     const absences  = Math.max(0, nbJ - presences);
     const taux      = ((presences / nbJ) * 100).toFixed(1);
 
-    // Demandes d'absence de cet agent dans la période (hors refusées)
+    // Toutes les demandes de l'agent dans la période (hors refusées) — tout type peut avoir une PJ
     const demandesAbs = demandesPeriode.filter(d =>
-      d.agentId === a.id && d.type === 'absence' && d.statut !== 'refuse'
+      d.agentId === a.id && d.statut !== 'refuse'
     );
     const avecJustif = demandesAbs.filter(d => d.piecesJointes && d.piecesJointes.length > 0).length;
     const sansJustif = demandesAbs.length - avecJustif;
