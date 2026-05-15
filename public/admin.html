@@ -532,8 +532,8 @@
               <th>Agent</th>
               <th>Service</th>
               <th>Présences</th>
-              <th>Absences</th>
               <th>Retards</th>
+              <th>Absences</th>
               <th>Taux</th>
               <th>Justif.</th>
               <th>Permissions</th>
@@ -1921,8 +1921,8 @@ async function genererRapportRH() {
         <td><div style="font-weight:700;font-size:0.88rem;">${a.nom}</div><div style="font-size:0.74rem;color:#aaa;">${a.id}</div></td>
         <td>—</td>
         <td><strong style="color:#1e8449;">${a.presences}</strong></td>
-        <td><strong style="color:${a.absences > 0 ? '#c0392b' : '#ccc'};">${a.absences || '—'}</strong></td>
         <td><strong style="color:${a.retards > 0 ? '#e67e22' : '#ccc'};">${a.retards || '—'}</strong></td>
+        <td><strong style="color:${a.absences > 0 ? '#c0392b' : '#ccc'};">${a.absences || '—'}</strong></td>
         <td><strong style="color:${tauxColor};">${a.taux}%</strong></td>
         <td>${justifCell}</td>
         <td><strong style="color:${a.permissions > 0 ? '#1A5676' : '#ccc'};">${a.permissions || '—'}</strong></td>
@@ -1944,13 +1944,13 @@ async function exporterRapportRHExcel() {
   const { rapport, du, au, nbJ } = _rapportRHData;
   const wb = XLSX.utils.book_new();
 
-  const rows = [['Nom', 'ID Agent', 'Service', `Jours ouvrés (${nbJ})`, 'Présences', 'Absences', 'Retards', 'Taux %', 'Avec justif.', 'Sans justif.', 'Permissions formelles']];
+  const rows = [['Nom', 'ID Agent', 'Service', `Jours ouvrés (${nbJ})`, 'Présences', 'Retards', 'Absences', 'Taux %', 'Avec justif.', 'Sans justif.', 'Permissions formelles']];
   const svcOrdreXls = ['Superviseur', 'Back Office', 'Call Center'];
   const svcGroupsXls = {};
   rapport.forEach(a => { const s = svcOrdreXls.includes(a.service) ? a.service : 'Autre'; (svcGroupsXls[s] = svcGroupsXls[s] || []).push(a); });
   [...svcOrdreXls, 'Autre'].filter(s => svcGroupsXls[s]?.length).forEach(svc => {
     rows.push([`── ${svc.toUpperCase()} ──`, '', '', '', '', '', '', '', '', '', '']);
-    svcGroupsXls[svc].forEach(a => rows.push([a.nom, a.id, a.service, nbJ, a.presences, a.absences, a.retards, a.taux + '%', a.avecJustif, a.sansJustif, a.permissions]));
+    svcGroupsXls[svc].forEach(a => rows.push([a.nom, a.id, a.service, nbJ, a.presences, a.retards, a.absences, a.taux + '%', a.avecJustif, a.sansJustif, a.permissions]));
   });
 
   const ws = XLSX.utils.aoa_to_sheet(rows);
