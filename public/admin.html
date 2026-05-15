@@ -1998,16 +1998,16 @@ async function genererQuinzaineCC() {
   const rows = [
     [titre],
     [],
-    ['Nom', 'Jours ouvrés', 'Présences', 'Absences', 'Retards', 'Taux de présence']
+    ['Nom', 'Jours ouvrés', 'Présences', 'Absences', 'Abs. justifiées', 'Abs. non justifiées', 'Retards', 'Taux de présence']
   ];
   agents.sort((a, b) => a.nom.localeCompare(b.nom)).forEach(a => {
-    rows.push([a.nom, nbJ, a.presences, a.absences, a.retards, a.taux + '%']);
+    rows.push([a.nom, nbJ, a.presences, a.absences, a.avecJustif, a.sansJustif, a.retards, a.taux + '%']);
   });
   rows.push([]);
-  rows.push(['TOTAL', '', agents.reduce((s,a)=>s+a.presences,0), agents.reduce((s,a)=>s+a.absences,0), agents.reduce((s,a)=>s+a.retards,0), '']);
+  rows.push(['TOTAL', '', agents.reduce((s,a)=>s+a.presences,0), agents.reduce((s,a)=>s+a.absences,0), agents.reduce((s,a)=>s+a.avecJustif,0), agents.reduce((s,a)=>s+a.sansJustif,0), agents.reduce((s,a)=>s+a.retards,0), '']);
 
   const ws = XLSX.utils.aoa_to_sheet(rows);
-  ws['!cols'] = [28, 12, 12, 12, 12, 16].map(w => ({ wch: w }));
+  ws['!cols'] = [28, 12, 12, 12, 16, 20, 12, 16].map(w => ({ wch: w }));
   // Titre en gras (ligne 0)
   if (!ws['A1'].s) ws['A1'].s = {};
   ws['A1'].s = { font: { bold: true, sz: 13 } };
