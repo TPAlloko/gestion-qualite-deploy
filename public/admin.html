@@ -518,6 +518,9 @@
       <button class="btn btn-primary" id="btn-generer-rh" onclick="genererRapportRH()" style="align-self:flex-end;padding:10px 22px;">
         📊 Générer
       </button>
+      <button class="btn btn-success" onclick="genererQuinzaineCC()" style="align-self:flex-end;padding:10px 22px;background:#1a7a4a;" title="Pré-remplit la quinzaine en cours, filtre Call Center et exporte directement">
+        📋 Quinzaine CC
+      </button>
     </div>
 
     <div id="rapport-resultats" style="display:none;">
@@ -1956,6 +1959,63 @@ async function exporterRapportRHExcel() {
 
   const periode = du && au ? `_${du}_au_${au}` : '';
   XLSX.writeFile(wb, `Rapport_RH${periode}.xlsx`);
+}
+
+async function genererQuinzaineCC() {
+  // Calcul automatique de la quinzaine en cours
+  const auj = new Date();
+  const annee = auj.getFullYear();
+  const mois  = auj.getMonth(); // 0-indexed
+  let du, au;
+  if (auj.getDate() <= 15) {
+    du = new Date(annee, mois, 1);
+    au = new Date(annee, mois, 15);
+  } else {
+    du = new Date(annee, mois, 16);
+    au = new Date(annee, mois + 1, 0); // dernier jour du mois
+  }
+  const fmt = d => d.toISOString().slice(0, 10);
+
+  // Pré-remplir les filtres
+  document.getElementById('rapport-du').value      = fmt(du);
+  document.getElementById('rapport-au').value      = fmt(au);
+  document.getElementById('rapport-service').value = 'Call Center';
+
+  // Générer le rapport (attend la fin)
+  await genererRapportRH();
+
+  // Export Excel dédié quinzaine CC
+  if (!_rapportRHData) return;
+  const { rapport, nbJ } = _rapportRHData;
+  const agents = rapport.filter(a => a.service === 'Call Center');
+  if (!agents.length) return;
+
+  const moisNom = du.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+  const quinzaine = du.getDate() === 1 ? '1ère quinzaine' : '2ème quinzaine';
+  const titre = `Relevé de présences Call Center — ${quinzaine} ${moisNom}`;
+
+  const wb = XLSX.utils.book_new();
+  const rows = [
+    [titre],
+    [],
+    ['Nom', 'Jours ouvrés', 'Présences', 'Absences', 'Retards', 'Taux de présence']
+  ];
+  agents.sort((a, b) => a.nom.localeCompare(b.nom)).forEach(a => {
+    rows.push([a.nom, nbJ, a.presences, a.absences, a.retards, a.taux + '%']);
+  });
+  rows.push([]);
+  rows.push(['TOTAL', '', agents.reduce((s,a)=>s+a.presences,0), agents.reduce((s,a)=>s+a.absences,0), agents.reduce((s,a)=>s+a.retards,0), '']);
+
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols'] = [28, 12, 12, 12, 12, 16].map(w => ({ wch: w }));
+  // Titre en gras (ligne 0)
+  if (!ws['A1'].s) ws['A1'].s = {};
+  ws['A1'].s = { font: { bold: true, sz: 13 } };
+  ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 5 } }];
+  XLSX.utils.book_append_sheet(wb, ws, 'Quinzaine CC');
+
+  const nomFichier = `Quinzaine_CC_${quinzaine.replace('è','e').replace(' ','_')}_${fmt(du).slice(0,7)}.xlsx`;
+  XLSX.writeFile(wb, nomFichier);
 }
 
 chargerStats();
