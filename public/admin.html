@@ -1842,7 +1842,9 @@ async function genererRapportRH() {
       d.agentId === a.id && d.statut !== 'refuse'
     );
     const avecJustif = demandesAbs.filter(d => d.piecesJointes && d.piecesJointes.length > 0).length;
-    const sansJustif = demandesAbs.length - avecJustif;
+    const sansJustif = demandesAbs.length === 0
+      ? absences  // aucune demande → toutes les absences sont non justifiées
+      : demandesAbs.length - avecJustif;
 
     const permissions = demandesPeriode.filter(d =>
       d.agentId === a.id && ['permission','conge','retard'].includes(d.type) && d.statut !== 'refuse'
@@ -1912,8 +1914,6 @@ async function genererRapportRH() {
       const tauxColor = parseFloat(a.taux) >= 90 ? '#1e8449' : parseFloat(a.taux) >= 70 ? '#d68910' : '#c0392b';
       const justifCell = a.absences === 0
         ? '<span style="color:#ccc;font-size:0.78rem;">—</span>'
-        : a.demandesAbsTotal === 0
-        ? '<span style="color:#e67e22;font-size:0.78rem;">⚠️ Aucune demande</span>'
         : (a.avecJustif > 0 ? `<span style="color:#1e8449;font-weight:600;">✅ ${a.avecJustif}</span>` : '') +
           (a.sansJustif > 0 ? `${a.avecJustif > 0 ? ' ' : ''}<span style="color:#c0392b;font-weight:600;">⚠️ ${a.sansJustif} sans</span>` : '');
 
