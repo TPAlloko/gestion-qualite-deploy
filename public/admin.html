@@ -2015,12 +2015,13 @@ function voirJoursAbsents(agentId) {
   const demandesAgent = (demandesPeriode || []).filter(d => d.agentId === agentId && d.statut !== 'refuse');
 
   const fmt = dateStr => {
-    const [y, m, d] = dateStr.split('-').map(Number);
+    const [y, m, d] = dateStr.slice(0, 10).split('-').map(Number);
     return new Date(y, m - 1, d).toLocaleDateString('fr-FR', { weekday: 'long', day: '2-digit', month: 'long' });
   };
 
   const rows = jours.map(date => {
-    const dem = demandesAgent.find(d => date >= d.dateDebut && date <= (d.dateFin || d.dateDebut));
+    const dateNorm = date.slice(0, 10);
+    const dem = demandesAgent.find(d => dateNorm >= (d.dateDebut||'').slice(0,10) && dateNorm <= (d.dateFin||d.dateDebut||'').slice(0,10));
     let justif = '<span style="color:#c0392b;font-size:0.82rem;">⚠️ Non justifiée</span>';
     if (dem) {
       if (dem.statut === 'approuve') {
