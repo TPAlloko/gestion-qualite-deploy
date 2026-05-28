@@ -136,6 +136,11 @@ async function initDB() {
     DELETE FROM agents WHERE id='BO016';
   `).catch(() => {});   // silencieux si déjà fait
 
+  // Migration : supprimer PALE et DIARRASSOUBA de la liste des agents
+  await pool.query(`
+    DELETE FROM agents WHERE nom = 'PALE' OR nom LIKE '%DIARRASSOUBA%';
+  `).catch(() => {});
+
   // Synchroniser les noms dans les pointages si un agent a été renommé
   await pool.query(`
     UPDATE pointages p
