@@ -745,6 +745,25 @@ function isRetard(p) {
   const [h, m] = p.heure.split(':').map(Number);
   return h > HEURE_DEBUT || (h === HEURE_DEBUT && m > 0);
 }
+// dates stockées en format FR "DD/MM/YYYY" dans pointages, ISO "YYYY-MM-DD" dans demandes
+function parseDateFR(dateStr) {
+  if (!dateStr) return null;
+  const s = String(dateStr);
+  let y, m, d;
+  if (s.includes('/')) { [d, m, y] = s.split('/').map(Number); }
+  else { [y, m, d] = s.slice(0, 10).split('-').map(Number); }
+  const dt = new Date(y, m - 1, d);
+  return isNaN(dt.getTime()) ? null : dt;
+}
+function toISOStr(dateStr) {
+  const dt = parseDateFR(dateStr);
+  if (!dt) return '';
+  return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
+}
+function jourPoids(dateStr) {
+  const dt = parseDateFR(dateStr);
+  return (dt && dt.getDay() === 6) ? 0.5 : 1; // samedi = demi-journée
+}
 let pointagesCache = [];
 let histPage = 0; const HIST_PAGE_SIZE = 30;
 
@@ -1798,7 +1817,7 @@ async function genererRapportRH() {
 
   // Nombre de jours ouvrés : dates distinctes où quelqu'un a badgé (déjà filtrés par serveur)
   const joursOuvres = [...new Set(ptsPeriode.map(p => p.date))].sort();
-  const nbJ = joursOuvres.length || 1;
+  const nbJ = joursOuvres.reduce((s, d) => s + jourPoids(d), 0) || 1;
 
   // Demandes dans la période
   const demandesPeriode = toutesDemandes.filter(d =>
@@ -1808,11 +1827,11 @@ async function genererRapportRH() {
   // Calcul par agent
   const rapport = agentsFiltres.map(a => {
     const entrees = ptsPeriode.filter(p => p.agentId === a.id && p.type === 'entree');
-    const presences = entrees.length;
+    const presences = entrees.reduce((s, p) => s + jourPoids(p.date), 0);
     const retards   = entrees.filter(p => isRetard(p)).length;
     const datesPresent = new Set(entrees.map(p => p.date));
     const joursAbsents = joursOuvres.filter(d => !datesPresent.has(d));
-    const absences  = joursAbsents.length;
+    const absences  = joursAbsents.reduce((s, d) => s + jourPoids(d), 0);
     const taux      = ((presences / nbJ) * 100).toFixed(1);
 
     // Toutes les demandes de l'agent dans la période (hors refusées) — tout type peut avoir une PJ
@@ -2014,23 +2033,16 @@ function voirJoursAbsents(agentId) {
   const jours = agent.joursAbsents;
   const demandesAgent = (demandesPeriode || []).filter(d => d.agentId === agentId && d.statut !== 'refuse');
 
-  // dates stockées en format FR "DD/MM/YYYY" dans pointages
-  const toISO = s => {
-    if (!s) return '';
-    if (String(s).includes('/')) { const [d, m, y] = String(s).split('/'); return `${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`; }
-    return String(s).slice(0, 10);
-  };
   const fmt = dateStr => {
-    const iso = toISO(dateStr);
-    const [y, m, d] = iso.split('-').map(Number);
-    const dt = new Date(y, m - 1, d);
-    if (isNaN(dt.getTime())) return dateStr;
+    const dt = parseDateFR(dateStr);
+    if (!dt) return String(dateStr);
     return dt.toLocaleDateString('fr-FR', { weekday: 'long', day: '2-digit', month: 'long' });
   };
 
   const rows = jours.map(date => {
-    const dateISO = toISO(date);
-    const dem = demandesAgent.find(d => dateISO >= toISO(d.dateDebut) && dateISO <= toISO(d.dateFin || d.dateDebut));
+    const dateISO = toISOStr(date);
+    const dem = demandesAgent.find(d => dateISO >= toISOStr(d.dateDebut) && dateISO <= toISOStr(d.dateFin || d.dateDebut));
+    const estSamedi = parseDateFR(date)?.getDay() === 6;
     let justif = '<span style="color:#c0392b;font-size:0.82rem;">⚠️ Non justifiée</span>';
     if (dem) {
       if (dem.statut === 'approuve') {
@@ -2041,8 +2053,9 @@ function voirJoursAbsents(agentId) {
         justif = '<span style="color:#e67e22;font-size:0.82rem;">📋 Demande sans PJ</span>';
       }
     }
+    const demiLabel = estSamedi ? ' <span style="font-size:0.72rem;background:#fef3c7;color:#92400e;border-radius:6px;padding:1px 6px;">½ j.</span>' : '';
     return `<tr style="border-bottom:1px solid #f0f0f0;">
-      <td style="padding:9px 14px;font-size:0.85rem;text-transform:capitalize;">${fmt(date)}</td>
+      <td style="padding:9px 14px;font-size:0.85rem;text-transform:capitalize;">${fmt(date)}${demiLabel}</td>
       <td style="padding:9px 14px;">${justif}</td>
     </tr>`;
   }).join('');
