@@ -1819,7 +1819,7 @@ async function genererRapportRH() {
     const demandesAbs = demandesPeriode.filter(d =>
       d.agentId === a.id && d.statut !== 'refuse'
     );
-    const avecJustif = demandesAbs.filter(d => d.statut === 'approuve' && d.piecesJointes && d.piecesJointes.length > 0).length;
+    const avecJustif = demandesAbs.filter(d => d.statut === 'approuve').length;
     const sansJustif = demandesAbs.length === 0
       ? absences  // aucune demande → toutes les absences sont non justifiées
       : demandesAbs.length - avecJustif;
@@ -2023,8 +2023,8 @@ function voirJoursAbsents(agentId) {
     const dem = demandesAgent.find(d => date >= d.dateDebut && date <= (d.dateFin || d.dateDebut));
     let justif = '<span style="color:#c0392b;font-size:0.82rem;">⚠️ Non justifiée</span>';
     if (dem) {
-      if (dem.statut === 'approuve' && dem.piecesJointes?.length) {
-        justif = '<span style="color:#1e8449;font-size:0.82rem;">✅ Justifiée (PJ approuvée)</span>';
+      if (dem.statut === 'approuve') {
+        justif = '<span style="color:#1e8449;font-size:0.82rem;">✅ Justifiée</span>';
       } else if (dem.piecesJointes?.length) {
         justif = '<span style="color:#e67e22;font-size:0.82rem;">⏳ PJ soumise (en attente)</span>';
       } else {
