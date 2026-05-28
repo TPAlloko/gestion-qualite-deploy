@@ -1797,7 +1797,8 @@ async function genererRapportRH() {
     .sort((a, b) => (a.nom_complet || `${a.prenom} ${a.nom}`).localeCompare(b.nom_complet || `${b.prenom} ${b.nom}`));
 
   // Nombre de jours ouvrés : dates distinctes où quelqu'un a badgé (déjà filtrés par serveur)
-  const nbJ = new Set(ptsPeriode.map(p => p.date)).size || 1;
+  const joursOuvres = [...new Set(ptsPeriode.map(p => p.date))].sort();
+  const nbJ = joursOuvres.length || 1;
 
   // Demandes dans la période
   const demandesPeriode = toutesDemandes.filter(d =>
@@ -1809,7 +1810,9 @@ async function genererRapportRH() {
     const entrees = ptsPeriode.filter(p => p.agentId === a.id && p.type === 'entree');
     const presences = entrees.length;
     const retards   = entrees.filter(p => isRetard(p)).length;
-    const absences  = Math.max(0, nbJ - presences);
+    const datesPresent = new Set(entrees.map(p => p.date));
+    const joursAbsents = joursOuvres.filter(d => !datesPresent.has(d));
+    const absences  = joursAbsents.length;
     const taux      = ((presences / nbJ) * 100).toFixed(1);
 
     // Toutes les demandes de l'agent dans la période (hors refusées) — tout type peut avoir une PJ
@@ -1831,11 +1834,11 @@ async function genererRapportRH() {
       service: serviceParAgent[a.id] || '—',
       presences, absences, retards, taux,
       avecJustif, sansJustif, demandesAbsTotal: demandesAbs.length,
-      permissions
+      permissions, joursAbsents
     };
   });
 
-  _rapportRHData = { rapport, du, au, nbJ };
+  _rapportRHData = { rapport, du, au, nbJ, demandesPeriode };
 
   // KPIs
   const kpi = (val, label, bg, color) =>
@@ -1897,7 +1900,7 @@ async function genererRapportRH() {
         <td>—</td>
         <td><strong style="color:#1e8449;">${a.presences}</strong></td>
         <td><strong style="color:${a.retards > 0 ? '#e67e22' : '#ccc'};">${a.retards || '—'}</strong></td>
-        <td><strong style="color:${a.absences > 0 ? '#c0392b' : '#ccc'};">${a.absences || '—'}</strong></td>
+        <td ${a.absences > 0 ? `onclick="voirJoursAbsents('${a.id}')" title="Voir les jours" style="cursor:pointer;"` : ''}><strong style="color:${a.absences > 0 ? '#c0392b' : '#ccc'};">${a.absences > 0 ? `<u>${a.absences}</u>` : '—'}</strong></td>
         <td><strong style="color:${tauxColor};">${a.taux}%</strong></td>
         <td>${justifCell}</td>
         <td><strong style="color:${a.permissions > 0 ? '#1A5676' : '#ccc'};">${a.permissions || '—'}</strong></td>
@@ -2001,6 +2004,67 @@ fetch('/api/demandes?statut=en_attente').then(r=>r.json()).then(d=>{
   if(d.length){ const b=document.getElementById('badge-demandes'); b.style.display='inline'; b.textContent=d.length; }
 }).catch(()=>{});
 setInterval(() => { chargerStats(); chargerFlux(); }, 30000);
+
+function voirJoursAbsents(agentId) {
+  if (!_rapportRHData) return;
+  const { rapport, du, au, demandesPeriode } = _rapportRHData;
+  const agent = rapport.find(a => a.id === agentId);
+  if (!agent || !agent.joursAbsents?.length) return;
+
+  const jours = agent.joursAbsents;
+  const demandesAgent = (demandesPeriode || []).filter(d => d.agentId === agentId && d.statut !== 'refuse');
+
+  const fmt = dateStr => {
+    const [y, m, d] = dateStr.split('-').map(Number);
+    return new Date(y, m - 1, d).toLocaleDateString('fr-FR', { weekday: 'long', day: '2-digit', month: 'long' });
+  };
+
+  const rows = jours.map(date => {
+    const dem = demandesAgent.find(d => date >= d.dateDebut && date <= (d.dateFin || d.dateDebut));
+    let justif = '<span style="color:#c0392b;font-size:0.82rem;">⚠️ Non justifiée</span>';
+    if (dem) {
+      justif = dem.piecesJointes?.length
+        ? '<span style="color:#1e8449;font-size:0.82rem;">✅ Justifiée (PJ)</span>'
+        : '<span style="color:#e67e22;font-size:0.82rem;">📋 Demande sans PJ</span>';
+    }
+    return `<tr style="border-bottom:1px solid #f0f0f0;">
+      <td style="padding:9px 14px;font-size:0.85rem;text-transform:capitalize;">${fmt(date)}</td>
+      <td style="padding:9px 14px;">${justif}</td>
+    </tr>`;
+  }).join('');
+
+  const periode = du && au ? ` · ${du} → ${au}` : '';
+  document.getElementById('modal-abs-titre').textContent = `Absences — ${agent.nom}`;
+  document.getElementById('modal-abs-sous-titre').textContent = `${jours.length} jour${jours.length > 1 ? 's' : ''}${periode}`;
+  document.getElementById('modal-abs-contenu').innerHTML = `
+    <table style="width:100%;border-collapse:collapse;">
+      <thead><tr style="background:#fde8e8;">
+        <th style="padding:8px 14px;text-align:left;font-size:0.74rem;color:#c0392b;text-transform:uppercase;letter-spacing:0.4px;">Date</th>
+        <th style="padding:8px 14px;text-align:left;font-size:0.74rem;color:#c0392b;text-transform:uppercase;letter-spacing:0.4px;">Justification</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+
+  document.getElementById('modal-absences').style.display = 'flex';
+}
+
+function fermerModalAbsences() {
+  document.getElementById('modal-absences').style.display = 'none';
+}
 </script>
+
+<!-- Modal jours absents -->
+<div id="modal-absences" onclick="if(event.target===this)fermerModalAbsences()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:300;align-items:center;justify-content:center;">
+  <div style="background:white;border-radius:16px;padding:24px 28px;max-width:520px;width:94%;box-shadow:0 12px 40px rgba(0,0,0,0.22);max-height:80vh;overflow-y:auto;">
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:16px;">
+      <div>
+        <h3 style="color:#c0392b;margin:0 0 3px 0;font-size:1rem;" id="modal-abs-titre">Jours d'absence</h3>
+        <p style="font-size:0.78rem;color:#aaa;margin:0;" id="modal-abs-sous-titre"></p>
+      </div>
+      <button onclick="fermerModalAbsences()" style="border:none;background:#f0f0f0;border-radius:50%;width:30px;height:30px;cursor:pointer;font-size:0.95rem;line-height:1;flex-shrink:0;">✕</button>
+    </div>
+    <div id="modal-abs-contenu"></div>
+  </div>
+</div>
 </body>
 </html>
