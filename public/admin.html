@@ -760,6 +760,15 @@ function toISOStr(dateStr) {
   if (!dt) return '';
   return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
 }
+// Back Office : télétravail un samedi sur deux à partir du samedi 20 juin 2026
+function estTeletravailBOSamedi(dateStr) {
+  const dt = parseDateFR(dateStr);
+  if (!dt || dt.getDay() !== 6) return false;
+  const ancre = new Date(2026, 5, 20); // samedi 20/06/2026 = 1er samedi télétravail BO
+  if (dt < ancre) return false;
+  const semaines = Math.round((dt - ancre) / (7 * 24 * 3600 * 1000));
+  return semaines % 2 === 0; // semaines paires depuis l'ancre = télétravail (donc pas d'absence attendue)
+}
 function jourPoids(dateStr) {
   const dt = parseDateFR(dateStr);
   return (dt && dt.getDay() === 6) ? 0.5 : 1; // samedi = demi-journée
@@ -1826,13 +1835,18 @@ async function genererRapportRH() {
 
   // Calcul par agent
   const rapport = agentsFiltres.map(a => {
+    // Back Office : samedi télétravail (1 sur 2 depuis le 20/06/2026) → exclu du décompte, pas une absence
+    const estBO = serviceParAgent[a.id] === 'Back Office';
+    const joursOuvresAgent = estBO ? joursOuvres.filter(d => !estTeletravailBOSamedi(d)) : joursOuvres;
+    const nbJAgent = joursOuvresAgent.reduce((s, d) => s + jourPoids(d), 0) || 1;
+
     const entrees = ptsPeriode.filter(p => p.agentId === a.id && p.type === 'entree');
     const presences = entrees.reduce((s, p) => s + jourPoids(p.date), 0);
     const retards   = entrees.filter(p => isRetard(p)).length;
     const datesPresent = new Set(entrees.map(p => p.date));
-    const joursAbsents = joursOuvres.filter(d => !datesPresent.has(d));
+    const joursAbsents = joursOuvresAgent.filter(d => !datesPresent.has(d));
     const absences  = joursAbsents.reduce((s, d) => s + jourPoids(d), 0);
-    const taux      = ((presences / nbJ) * 100).toFixed(1);
+    const taux      = ((presences / nbJAgent) * 100).toFixed(1);
 
     // Toutes les demandes de l'agent dans la période (hors refusées) — tout type peut avoir une PJ
     const demandesAbs = demandesPeriode.filter(d =>
@@ -1851,7 +1865,7 @@ async function genererRapportRH() {
       id: a.id,
       nom: a.nom_complet || `${a.prenom} ${a.nom}`,
       service: serviceParAgent[a.id] || '—',
-      presences, absences, retards, taux,
+      presences, absences, retards, taux, nbJAgent,
       avecJustif, sansJustif, demandesAbsTotal: demandesAbs.length,
       permissions, joursAbsents
     };
@@ -1941,13 +1955,13 @@ async function exporterRapportRHExcel() {
   const { rapport, du, au, nbJ } = _rapportRHData;
   const wb = XLSX.utils.book_new();
 
-  const rows = [['Nom', 'ID Agent', 'Service', `Jours ouvrés (${nbJ})`, 'Présences', 'Retards', 'Absences', 'Taux %', 'Avec justif.', 'Sans justif.', 'Permissions formelles']];
+  const rows = [['Nom', 'ID Agent', 'Service', 'Jours ouvrés', 'Présences', 'Retards', 'Absences', 'Taux %', 'Avec justif.', 'Sans justif.', 'Permissions formelles']];
   const svcOrdreXls = ['Superviseur', 'Back Office', 'Call Center'];
   const svcGroupsXls = {};
   rapport.forEach(a => { const s = svcOrdreXls.includes(a.service) ? a.service : 'Autre'; (svcGroupsXls[s] = svcGroupsXls[s] || []).push(a); });
   [...svcOrdreXls, 'Autre'].filter(s => svcGroupsXls[s]?.length).forEach(svc => {
     rows.push([`── ${svc.toUpperCase()} ──`, '', '', '', '', '', '', '', '', '', '']);
-    svcGroupsXls[svc].forEach(a => rows.push([a.nom, a.id, a.service, nbJ, a.presences, a.retards, a.absences, a.taux + '%', a.avecJustif, a.sansJustif, a.permissions]));
+    svcGroupsXls[svc].forEach(a => rows.push([a.nom, a.id, a.service, a.nbJAgent ?? nbJ, a.presences, a.retards, a.absences, a.taux + '%', a.avecJustif, a.sansJustif, a.permissions]));
   });
 
   const ws = XLSX.utils.aoa_to_sheet(rows);
