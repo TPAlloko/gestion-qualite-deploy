@@ -121,9 +121,10 @@
     display:flex; align-items:center; gap:12px;
     box-shadow:0 1px 6px rgba(0,0,0,0.06); border:2px solid #f0f4f8;
   }
-  .presence-card.present { border-color:#b7ecd0; }
-  .presence-card.absent  { border-color:#fad2d2; }
-  .presence-card.retard  { border-color:#fde8b7; }
+  .presence-card.present     { border-color:#b7ecd0; }
+  .presence-card.absent      { border-color:#fad2d2; }
+  .presence-card.retard      { border-color:#fde8b7; }
+  .presence-card.teletravail { border-color:#d8c8f5; }
   .avatar {
     width:38px; height:38px; border-radius:50%; flex-shrink:0;
     background:linear-gradient(135deg,var(--bleu2),var(--bleu));
@@ -245,6 +246,7 @@
       <option value="present">Présents</option>
       <option value="absent">Absents</option>
       <option value="retard">En retard</option>
+      <option value="teletravail">Télétravail</option>
     </select>
   </div>
   <div class="presence-grid" id="presence-grid">
@@ -308,6 +310,17 @@
 // ── Token depuis l'URL ──
 const params = new URLSearchParams(window.location.search);
 const TOKEN  = params.get('token') || '';
+
+// Back Office : télétravail un samedi sur deux à partir du 20/06/2026 (dateStr format "DD/MM/YYYY")
+function estTeletravailBOSamedi(dateStr) {
+  const [d, m, y] = dateStr.split('/').map(Number);
+  const dt = new Date(y, m - 1, d);
+  if (dt.getDay() !== 6) return false;
+  const ancre = new Date(2026, 5, 20);
+  if (dt < ancre) return false;
+  const semaines = Math.round((dt - ancre) / (7 * 24 * 3600 * 1000));
+  return semaines % 2 === 0;
+}
 
 // ── Horloge ──
 function majHeure() {
@@ -445,6 +458,7 @@ function filtrerPresences() {
     const retard   = entree && entree.retard;
 
     let etat = present ? (retard ? 'retard' : 'present') : 'absent';
+    if (!present && agent.service === 'Back Office' && estTeletravailBOSamedi(today)) etat = 'teletravail';
     if (statut && etat !== statut) return;
 
     const nom = agent.nom_complet || `${agent.prenom} ${agent.nom}`;
@@ -460,7 +474,8 @@ function filtrerPresences() {
         <div class="presence-heure">
           ${entree ? '🟢 ' + entree.heure : ''}
           ${sortie ? ' · 🔴 ' + sortie.heure : ''}
-          ${!entree ? '<span style="color:#e74c3c;font-size:0.7rem;">Absent</span>' : ''}
+          ${!entree && etat === 'teletravail' ? '<span style="color:#7c3aed;font-size:0.7rem;">🏠 Télétravail</span>' : ''}
+          ${!entree && etat === 'absent' ? '<span style="color:#e74c3c;font-size:0.7rem;">Absent</span>' : ''}
           ${retard  ? ' <span style="color:#e67e22;font-size:0.68rem;">⚠️ Retard</span>' : ''}
         </div>
       </div>`;

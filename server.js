@@ -18,6 +18,17 @@ const BUREAU_RAYON = 50; // mètres
 const HEURE_DEBUT = 9;  // 09h00 — retard si arrivée après
 const HEURE_FIN   = 17; // 17h00 — départ prévu
 
+// Back Office : télétravail un samedi sur deux à partir du samedi 20 juin 2026 (dateStr format "DD/MM/YYYY")
+function estTeletravailBOSamedi(dateStr) {
+  const [d, m, y] = dateStr.split('/').map(Number);
+  const dt = new Date(y, m - 1, d);
+  if (dt.getDay() !== 6) return false;
+  const ancre = new Date(2026, 5, 20); // samedi 20/06/2026 = 1er samedi télétravail BO
+  if (dt < ancre) return false;
+  const semaines = Math.round((dt - ancre) / (7 * 24 * 3600 * 1000));
+  return semaines % 2 === 0;
+}
+
 function distanceMetres(lat1, lng1, lat2, lng2) {
   const R = 6371000;
   const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -312,7 +323,7 @@ app.delete('/api/pointages/:id', requireAuth, requireAdmin, async (req, res) => 
 // ── Stats ──
 app.get('/api/stats', async (req, res) => {
   const today = new Date().toLocaleDateString('fr-FR');
-  const { rows: agents }   = await pool.query('SELECT id FROM agents');
+  const { rows: agents }   = await pool.query('SELECT id, service FROM agents');
   const { rows: pointages } = await pool.query(
     'SELECT * FROM pointages WHERE date = $1', [today]
   );
@@ -322,14 +333,17 @@ app.get('/api/stats', async (req, res) => {
     const [h, m] = p.heure.split(':').map(Number);
     return h > HEURE_DEBUT || (h === HEURE_DEBUT && m > 0);
   }).length;
+  const teletravail = estTeletravailBOSamedi(today);
+  const agentsAttendus = agents.filter(a => !(teletravail && a.service === 'Back Office'));
+  const presentsAttendus = agentsAttendus.filter(a => presents.has(a.id)).length;
   const { rows: derniers } = await pool.query(
     'SELECT * FROM pointages WHERE date = $1 ORDER BY timestamp DESC LIMIT 5', [today]
   );
   res.json({
     date: today,
-    totalAgents: agents.length,
+    totalAgents: agentsAttendus.length,
     presents: presents.size,
-    absents: Math.max(0, agents.length - presents.size),
+    absents: Math.max(0, agentsAttendus.length - presentsAttendus),
     retards,
     derniersPointages: derniers.map(rowToPointage)
   });
@@ -608,7 +622,7 @@ app.get('/api/demandes/:id/pj/:index', requireAuth, async (req, res) => {
 
 app.get('/api/superviseur/stats', requireSuperviseur, async (req, res) => {
   const today = new Date().toLocaleDateString('fr-FR');
-  const { rows: agents }   = await pool.query('SELECT id FROM agents');
+  const { rows: agents }   = await pool.query('SELECT id, service FROM agents');
   const { rows: pointages } = await pool.query('SELECT * FROM pointages WHERE date = $1', [today]);
   const presents = new Set(pointages.filter(p => p.type === 'entree').map(p => p.agent_id));
   const retards  = pointages.filter(p => {
@@ -616,7 +630,10 @@ app.get('/api/superviseur/stats', requireSuperviseur, async (req, res) => {
     const [h, m] = p.heure.split(':').map(Number);
     return h > HEURE_DEBUT || (h === HEURE_DEBUT && m > 0);
   }).length;
-  res.json({ totalAgents: agents.length, presents: presents.size, absents: Math.max(0, agents.length - presents.size), retards });
+  const teletravail = estTeletravailBOSamedi(today);
+  const agentsAttendus = agents.filter(a => !(teletravail && a.service === 'Back Office'));
+  const presentsAttendus = agentsAttendus.filter(a => presents.has(a.id)).length;
+  res.json({ totalAgents: agentsAttendus.length, presents: presents.size, absents: Math.max(0, agentsAttendus.length - presentsAttendus), retards });
 });
 
 app.get('/api/superviseur/agents', requireSuperviseur, async (req, res) => {

@@ -118,9 +118,10 @@
     display:inline-flex; align-items:center; gap:4px;
     padding:3px 10px; border-radius:20px; font-size:0.75rem; font-weight:600;
   }
-  .badge.present { background:#d5f5e3; color:#1e8449; }
-  .badge.absent  { background:#fde8e8; color:#c0392b; }
-  .badge.retard  { background:#fef3cd; color:#d68910; }
+  .badge.present     { background:#d5f5e3; color:#1e8449; }
+  .badge.absent      { background:#fde8e8; color:#c0392b; }
+  .badge.retard      { background:#fef3cd; color:#d68910; }
+  .badge.teletravail { background:#f3e8ff; color:#7c3aed; }
   .badge.entree  { background:#d5f5e3; color:#1e8449; }
   .badge.sortie  { background:#fde8e8; color:#c0392b; }
 
@@ -173,9 +174,10 @@
     box-shadow:0 1px 6px rgba(0,0,0,0.06); border:2px solid #f0f4f8;
     transition:border-color 0.2s;
   }
-  .presence-card.present { border-color:#b7ecd0; }
-  .presence-card.absent  { border-color:#fad2d2; }
-  .presence-card.retard  { border-color:#fde8b7; }
+  .presence-card.present     { border-color:#b7ecd0; }
+  .presence-card.absent      { border-color:#fad2d2; }
+  .presence-card.retard      { border-color:#fde8b7; }
+  .presence-card.teletravail { border-color:#d8c8f5; }
   .presence-info { flex:1; min-width:0; }
   .presence-nom  { font-weight:700; font-size:0.88rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .presence-poste{ font-size:0.74rem; color:#999; }
@@ -840,12 +842,14 @@ async function chargerPresences() {
   if (!agents.length) { grid.innerHTML = '<div style="color:#ccc;text-align:center;padding:20px;">Aucun agent enregistré</div>'; return; }
 
   // Calculer le statut de chaque agent
+  const today = new Date().toLocaleDateString('fr-FR');
   const statutMap = {};
   agents.forEach(a => {
     const entree = pts.find(p => p.agentId === a.id && p.type === 'entree');
     const sortie = pts.find(p => p.agentId === a.id && p.type === 'sortie');
     let statut = 'absent';
     if (entree) statut = isRetard(entree) ? 'retard' : 'present';
+    else if (a.service === 'Back Office' && estTeletravailBOSamedi(today)) statut = 'teletravail';
     statutMap[a.id] = { statut, entree, sortie };
   });
 
@@ -898,7 +902,7 @@ async function chargerPresences() {
 
     groupe.liste.forEach(agent => {
       const { statut, entree, sortie } = statutMap[agent.id];
-      const labelBadge = statut === 'present' ? 'Présent' : statut === 'retard' ? 'Retard' : 'Absent';
+      const labelBadge = statut === 'present' ? 'Présent' : statut === 'retard' ? 'Retard' : statut === 'teletravail' ? '🏠 Télétravail' : 'Absent';
       const nomAffiche = agent.nom_complet || `${agent.prenom} ${agent.nom}`;
       const initiales = nomAffiche.split(' ').filter(w=>w).map(w=>w[0]).slice(0,2).join('').toUpperCase();
       const avatarStyle = agent.service === 'Call Center' ? 'background:linear-gradient(135deg,#e67e22,#f39c12);' : '';
@@ -934,12 +938,14 @@ async function filtrerParStatut(statut) {
   agentsCache = agents;
 
   // Calculer les statuts
+  const today = new Date().toLocaleDateString('fr-FR');
   const statutMap = {};
   agents.forEach(a => {
     const entree = pts.find(p => p.agentId === a.id && p.type === 'entree');
     const sortie = pts.find(p => p.agentId === a.id && p.type === 'sortie');
     let st = 'absent';
     if (entree) st = isRetard(entree) ? 'retard' : 'present';
+    else if (a.service === 'Back Office' && estTeletravailBOSamedi(today)) st = 'teletravail';
     statutMap[a.id] = { statut: st, entree, sortie };
   });
 
@@ -987,7 +993,7 @@ async function filtrerParStatut(statut) {
     grid.appendChild(titre);
     groupe.liste.forEach(agent => {
       const { statut: st, entree, sortie } = statutMap[agent.id];
-      const label = st === 'present' ? 'Présent' : st === 'retard' ? 'Retard' : 'Absent';
+      const label = st === 'present' ? 'Présent' : st === 'retard' ? 'Retard' : st === 'teletravail' ? '🏠 Télétravail' : 'Absent';
       const nomAffiche = agent.nom_complet || `${agent.prenom} ${agent.nom}`;
       const initiales = nomAffiche.split(' ').filter(w=>w).map(w=>w[0]).slice(0,2).join('').toUpperCase();
       const avatarStyle = agent.service === 'Call Center' ? 'background:linear-gradient(135deg,#e67e22,#f39c12);' : '';
