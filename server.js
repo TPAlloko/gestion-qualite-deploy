@@ -15,8 +15,9 @@ const BUREAU_LNG   = -4.010596;
 const BUREAU_RAYON = 50; // mètres
 
 // ── Horaires de travail ──
-const HEURE_DEBUT = 9;  // 09h00 — retard si arrivée après
-const HEURE_FIN   = 17; // 17h00 — départ prévu
+const HEURE_DEBUT  = 9;  // 09h
+const MINUTE_DEBUT = 10; // tolérance 10 min — retard si arrivée après 09h10
+const HEURE_FIN    = 17; // 17h00 — départ prévu
 
 // Back Office : télétravail un samedi sur deux à partir du samedi 20 juin 2026 (dateStr format "DD/MM/YYYY")
 function estTeletravailBOSamedi(dateStr) {
@@ -327,11 +328,12 @@ app.get('/api/stats', async (req, res) => {
   const { rows: pointages } = await pool.query(
     'SELECT * FROM pointages WHERE date = $1', [today]
   );
-  const presents = new Set(pointages.filter(p => p.type === 'entree').map(p => p.agent_id));
+  const agentsAvecSortie = new Set(pointages.filter(p => p.type === 'sortie').map(p => p.agent_id));
+  const presents = new Set(pointages.filter(p => p.type === 'entree' && agentsAvecSortie.has(p.agent_id)).map(p => p.agent_id));
   const retards  = pointages.filter(p => {
-    if (p.type !== 'entree') return false;
+    if (p.type !== 'entree' || !agentsAvecSortie.has(p.agent_id)) return false;
     const [h, m] = p.heure.split(':').map(Number);
-    return h > HEURE_DEBUT || (h === HEURE_DEBUT && m > 0);
+    return h > HEURE_DEBUT || (h === HEURE_DEBUT && m > MINUTE_DEBUT);
   }).length;
   const teletravail = estTeletravailBOSamedi(today);
   const agentsAttendus = agents.filter(a => !(teletravail && a.service === 'Back Office'));
@@ -420,7 +422,7 @@ app.post('/api/badger', rateLimit(10, 60_000), async (req, res) => {
     }
   }
   const [h, m] = heure.split(':').map(Number);
-  const retard = type === 'entree' && (h > HEURE_DEBUT || (h === HEURE_DEBUT && m > 0));
+  const retard = type === 'entree' && (h > HEURE_DEBUT || (h === HEURE_DEBUT && m > MINUTE_DEBUT));
   const pointageId = randomUUID();
 
   // Photo stockée en base64 dans la DB
@@ -624,11 +626,12 @@ app.get('/api/superviseur/stats', requireSuperviseur, async (req, res) => {
   const today = new Date().toLocaleDateString('fr-FR');
   const { rows: agents }   = await pool.query('SELECT id, service FROM agents');
   const { rows: pointages } = await pool.query('SELECT * FROM pointages WHERE date = $1', [today]);
-  const presents = new Set(pointages.filter(p => p.type === 'entree').map(p => p.agent_id));
+  const avecSortieS = new Set(pointages.filter(p => p.type === 'sortie').map(p => p.agent_id));
+  const presents = new Set(pointages.filter(p => p.type === 'entree' && avecSortieS.has(p.agent_id)).map(p => p.agent_id));
   const retards  = pointages.filter(p => {
-    if (p.type !== 'entree') return false;
+    if (p.type !== 'entree' || !avecSortieS.has(p.agent_id)) return false;
     const [h, m] = p.heure.split(':').map(Number);
-    return h > HEURE_DEBUT || (h === HEURE_DEBUT && m > 0);
+    return h > HEURE_DEBUT || (h === HEURE_DEBUT && m > MINUTE_DEBUT);
   }).length;
   const teletravail = estTeletravailBOSamedi(today);
   const agentsAttendus = agents.filter(a => !(teletravail && a.service === 'Back Office'));
@@ -793,7 +796,7 @@ function rowToPointage(r) {
   let retard = false;
   if (r.type === 'entree' && r.heure) {
     const [h, m] = r.heure.split(':').map(Number);
-    retard = h > HEURE_DEBUT || (h === HEURE_DEBUT && m > 0);
+    retard = h > HEURE_DEBUT || (h === HEURE_DEBUT && m > MINUTE_DEBUT);
   }
   return {
     id: r.id, agentId: r.agent_id, nom: r.nom, prenom: r.prenom,

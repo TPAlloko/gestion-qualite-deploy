@@ -741,11 +741,12 @@
 const socket = io();
 let agentsCache = [];
 let filtrePresence = 'tous'; // 'tous' | 'presents' | 'absents' | 'retards'
-const HEURE_DEBUT = 9; // 09h00 — seuil de retard
+const HEURE_DEBUT  = 9;
+const MINUTE_DEBUT = 10; // tolérance — retard si arrivée après 09h10
 function isRetard(p) {
   if (p.type !== 'entree' || !p.heure) return false;
   const [h, m] = p.heure.split(':').map(Number);
-  return h > HEURE_DEBUT || (h === HEURE_DEBUT && m > 0);
+  return h > HEURE_DEBUT || (h === HEURE_DEBUT && m > MINUTE_DEBUT);
 }
 // dates stockées en format FR "DD/MM/YYYY" dans pointages, ISO "YYYY-MM-DD" dans demandes
 function parseDateFR(dateStr) {
@@ -848,8 +849,8 @@ async function chargerPresences() {
     const entree = pts.find(p => p.agentId === a.id && p.type === 'entree');
     const sortie = pts.find(p => p.agentId === a.id && p.type === 'sortie');
     let statut = 'absent';
-    if (entree) statut = isRetard(entree) ? 'retard' : 'present';
-    else if (a.service === 'Back Office' && estTeletravailBOSamedi(today)) statut = 'teletravail';
+    if (entree && sortie) statut = isRetard(entree) ? 'retard' : 'present';
+    else if (!entree && a.service === 'Back Office' && estTeletravailBOSamedi(today)) statut = 'teletravail';
     statutMap[a.id] = { statut, entree, sortie };
   });
 
@@ -944,8 +945,8 @@ async function filtrerParStatut(statut) {
     const entree = pts.find(p => p.agentId === a.id && p.type === 'entree');
     const sortie = pts.find(p => p.agentId === a.id && p.type === 'sortie');
     let st = 'absent';
-    if (entree) st = isRetard(entree) ? 'retard' : 'present';
-    else if (a.service === 'Back Office' && estTeletravailBOSamedi(today)) st = 'teletravail';
+    if (entree && sortie) st = isRetard(entree) ? 'retard' : 'present';
+    else if (!entree && a.service === 'Back Office' && estTeletravailBOSamedi(today)) st = 'teletravail';
     statutMap[a.id] = { statut: st, entree, sortie };
   });
 
@@ -1846,10 +1847,14 @@ async function genererRapportRH() {
     const joursOuvresAgent = estBO ? joursOuvres.filter(d => !estTeletravailBOSamedi(d)) : joursOuvres;
     const nbJAgent = joursOuvresAgent.reduce((s, d) => s + jourPoids(d), 0) || 1;
 
-    const entrees = ptsPeriode.filter(p => p.agentId === a.id && p.type === 'entree');
-    const presences = entrees.reduce((s, p) => s + jourPoids(p.date), 0);
-    const retards   = entrees.filter(p => isRetard(p)).length;
-    const datesPresent = new Set(entrees.map(p => p.date));
+    const ptsPeriodeAgent = ptsPeriode.filter(p => p.agentId === a.id);
+    const datesSortie = new Set(ptsPeriodeAgent.filter(p => p.type === 'sortie').map(p => p.date));
+    const entrees = ptsPeriodeAgent.filter(p => p.type === 'entree');
+    // Présence = entrée ET sortie le même jour
+    const entreesPresentes = entrees.filter(e => datesSortie.has(e.date));
+    const presences = entreesPresentes.reduce((s, p) => s + jourPoids(p.date), 0);
+    const retards   = entreesPresentes.filter(p => isRetard(p)).length;
+    const datesPresent = new Set(entreesPresentes.map(p => p.date));
     const joursAbsents = joursOuvresAgent.filter(d => !datesPresent.has(d));
     const absences  = joursAbsents.reduce((s, d) => s + jourPoids(d), 0);
     const taux      = ((presences / nbJAgent) * 100).toFixed(1);

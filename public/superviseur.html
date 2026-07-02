@@ -454,11 +454,11 @@ function filtrerPresences() {
     const ptsAgent = tousPointages.filter(p => p.agentId === agent.id);
     const entree   = ptsAgent.find(p => p.type === 'entree');
     const sortie   = ptsAgent.find(p => p.type === 'sortie');
-    const present  = !!entree;
-    const retard   = entree && entree.retard;
+    const present  = !!(entree && sortie);
+    const retard   = present && entree.retard;
 
     let etat = present ? (retard ? 'retard' : 'present') : 'absent';
-    if (!present && agent.service === 'Back Office' && estTeletravailBOSamedi(today)) etat = 'teletravail';
+    if (!present && !entree && agent.service === 'Back Office' && estTeletravailBOSamedi(today)) etat = 'teletravail';
     if (statut && etat !== statut) return;
 
     const nom = agent.nom_complet || `${agent.prenom} ${agent.nom}`;
