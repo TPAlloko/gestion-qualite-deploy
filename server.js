@@ -133,6 +133,15 @@ async function initDB() {
     CREATE INDEX IF NOT EXISTS idx_demandes_agent_id   ON demandes(agent_id);
     CREATE INDEX IF NOT EXISTS idx_demandes_date_debut ON demandes(date_debut);
     CREATE INDEX IF NOT EXISTS idx_push_subs_agent     ON push_subscriptions(agent_id);
+
+    CREATE TABLE IF NOT EXISTS justifications_manuelles (
+      id         TEXT PRIMARY KEY,
+      agent_id   TEXT NOT NULL,
+      date       TEXT NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_justif_agent ON justifications_manuelles(agent_id);
+    CREATE INDEX IF NOT EXISTS idx_justif_date  ON justifications_manuelles(date);
   `);
 
   // Migration : fusionner agents en double (BO006→BO05, BO016→BO09)
@@ -616,6 +625,38 @@ app.get('/api/demandes/:id/pj/:index', requireAuth, async (req, res) => {
   res.setHeader('Content-Type', mime);
   res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(pj.nom)}"`);
   res.send(buf);
+});
+
+// ── Justifications manuelles ──
+app.get('/api/justifications', requireAuth, async (req, res) => {
+  let query = 'SELECT * FROM justifications_manuelles WHERE 1=1';
+  const params = [];
+  if (req.query.agentId) { params.push(req.query.agentId); query += ` AND agent_id = $${params.length}`; }
+  if (req.query.du)      { params.push(req.query.du);      query += ` AND date >= $${params.length}`; }
+  if (req.query.au)      { params.push(req.query.au);      query += ` AND date <= $${params.length}`; }
+  const { rows } = await pool.query(query, params);
+  res.json(rows.map(r => ({ id: r.id, agentId: r.agent_id, date: r.date })));
+});
+
+app.post('/api/justifications', requireAuth, requireAdmin, async (req, res) => {
+  const { agentId, date } = req.body;
+  if (!agentId || !date) return res.status(400).json({ erreur: 'agentId et date requis.' });
+  // Éviter les doublons
+  const { rows: existing } = await pool.query(
+    'SELECT id FROM justifications_manuelles WHERE agent_id = $1 AND date = $2', [agentId, date]
+  );
+  if (existing.length) return res.json({ id: existing[0].id, agentId, date });
+  const id = randomUUID();
+  await pool.query(
+    'INSERT INTO justifications_manuelles (id, agent_id, date) VALUES ($1, $2, $3)',
+    [id, agentId, date]
+  );
+  res.json({ id, agentId, date });
+});
+
+app.delete('/api/justifications/:id', requireAuth, requireAdmin, async (req, res) => {
+  await pool.query('DELETE FROM justifications_manuelles WHERE id = $1', [req.params.id]);
+  res.json({ ok: true });
 });
 
 // ─────────────────────────────────────────

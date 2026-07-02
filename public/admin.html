@@ -1808,10 +1808,11 @@ async function genererRapportRH() {
   if (du) params.set('du', du);
   if (au) params.set('au', au);
 
-  const [agentsList, ptsPeriode, toutesDemandes] = await Promise.all([
+  const [agentsList, ptsPeriode, toutesDemandes, justifsManuelles] = await Promise.all([
     fetch('/api/agents').then(r => r.json()).catch(() => []),
     fetch('/api/pointages?' + params + '&nophoto=1').then(r => r.json()).catch(() => []),
-    fetch('/api/demandes?' + params).then(r => r.json()).catch(() => [])
+    fetch('/api/demandes?' + params).then(r => r.json()).catch(() => []),
+    fetch('/api/justifications?' + params).then(r => r.json()).catch(() => [])
   ]);
 
   // Carte agentId → service réel + fallback poste
@@ -1863,10 +1864,17 @@ async function genererRapportRH() {
     const demandesAbs = demandesPeriode.filter(d =>
       d.agentId === a.id && d.statut !== 'refuse'
     );
-    const avecJustif = demandesAbs.filter(d => d.statut === 'approuve').length;
-    const sansJustif = demandesAbs.length === 0
-      ? absences  // aucune demande → toutes les absences sont non justifiées
-      : demandesAbs.length - avecJustif;
+    const justifsManuAgent = justifsManuelles.filter(j => j.agentId === a.id);
+    // Jours couverts par une demande approuvée
+    const joursViaDemandeAppr = new Set(joursAbsents.filter(date => {
+      const iso = toISOStr(date);
+      return demandesAbs.some(d => d.statut === 'approuve' && iso >= toISOStr(d.dateDebut) && iso <= toISOStr(d.dateFin || d.dateDebut));
+    }));
+    // Jours couverts par une justification manuelle
+    const joursViaManuelle = new Set(justifsManuAgent.map(j => j.date));
+    const joursJustifies = new Set([...joursViaDemandeAppr, ...joursAbsents.filter(d => joursViaManuelle.has(d))]);
+    const avecJustif = joursJustifies.size;
+    const sansJustif = joursAbsents.length - avecJustif;
 
     const permissions = demandesPeriode.filter(d =>
       d.agentId === a.id && ['permission','conge','retard'].includes(d.type) && d.statut !== 'refuse'
@@ -1882,7 +1890,7 @@ async function genererRapportRH() {
     };
   });
 
-  _rapportRHData = { rapport, du, au, nbJ, demandesPeriode };
+  _rapportRHData = { rapport, du, au, nbJ, demandesPeriode, justifsManuelles };
 
   // KPIs
   const kpi = (val, label, bg, color) =>
@@ -2051,12 +2059,13 @@ setInterval(() => { chargerStats(); chargerFlux(); }, 30000);
 
 function voirJoursAbsents(agentId) {
   if (!_rapportRHData) return;
-  const { rapport, du, au, demandesPeriode } = _rapportRHData;
+  const { rapport, du, au, demandesPeriode, justifsManuelles } = _rapportRHData;
   const agent = rapport.find(a => a.id === agentId);
   if (!agent || !agent.joursAbsents?.length) return;
 
   const jours = agent.joursAbsents;
   const demandesAgent = (demandesPeriode || []).filter(d => d.agentId === agentId && d.statut !== 'refuse');
+  const justifsManuAgent = (justifsManuelles || []).filter(j => j.agentId === agentId);
 
   const fmt = dateStr => {
     const dt = parseDateFR(dateStr);
@@ -2067,16 +2076,29 @@ function voirJoursAbsents(agentId) {
   const rows = jours.map(date => {
     const dateISO = toISOStr(date);
     const dem = demandesAgent.find(d => dateISO >= toISOStr(d.dateDebut) && dateISO <= toISOStr(d.dateFin || d.dateDebut));
+    const manuelle = justifsManuAgent.find(j => j.date === dateISO || j.date === date);
     const estSamedi = parseDateFR(date)?.getDay() === 6;
-    let justif = '<span style="color:#c0392b;font-size:0.82rem;">⚠️ Non justifiée</span>';
-    if (dem) {
+    let justif;
+    if (manuelle) {
+      justif = `<span style="color:#1e8449;font-size:0.82rem;">✅ Justifiée</span>
+        <button onclick="retirerJustifManuelle('${manuelle.id}','${agentId}')" title="Retirer la justification"
+          style="margin-left:8px;border:none;background:none;color:#c0392b;cursor:pointer;font-size:0.78rem;padding:2px 6px;border-radius:6px;background:#fde8e8;">✕ Retirer</button>`;
+    } else if (dem) {
       if (dem.statut === 'approuve') {
         justif = '<span style="color:#1e8449;font-size:0.82rem;">✅ Justifiée</span>';
       } else if (dem.piecesJointes?.length) {
-        justif = '<span style="color:#e67e22;font-size:0.82rem;">⏳ PJ soumise (en attente)</span>';
+        justif = `<span style="color:#e67e22;font-size:0.82rem;">⏳ PJ soumise (en attente)</span>
+          <button onclick="marquerJustifie('${agentId}','${dateISO}')"
+            style="margin-left:8px;border:none;background:#e8f5e9;color:#1e8449;cursor:pointer;font-size:0.78rem;padding:3px 9px;border-radius:6px;font-weight:600;">✅ Marquer justifiée</button>`;
       } else {
-        justif = '<span style="color:#e67e22;font-size:0.82rem;">📋 Demande sans PJ</span>';
+        justif = `<span style="color:#e67e22;font-size:0.82rem;">📋 Demande sans PJ</span>
+          <button onclick="marquerJustifie('${agentId}','${dateISO}')"
+            style="margin-left:8px;border:none;background:#e8f5e9;color:#1e8449;cursor:pointer;font-size:0.78rem;padding:3px 9px;border-radius:6px;font-weight:600;">✅ Marquer justifiée</button>`;
       }
+    } else {
+      justif = `<span style="color:#c0392b;font-size:0.82rem;">⚠️ Non justifiée</span>
+        <button onclick="marquerJustifie('${agentId}','${dateISO}')"
+          style="margin-left:8px;border:none;background:#e8f5e9;color:#1e8449;cursor:pointer;font-size:0.78rem;padding:3px 9px;border-radius:6px;font-weight:600;">✅ Marquer justifiée</button>`;
     }
     const demiLabel = estSamedi ? ' <span style="font-size:0.72rem;background:#fef3c7;color:#92400e;border-radius:6px;padding:1px 6px;">½ j.</span>' : '';
     return `<tr style="border-bottom:1px solid #f0f0f0;">
@@ -2098,6 +2120,27 @@ function voirJoursAbsents(agentId) {
     </table>`;
 
   document.getElementById('modal-absences').style.display = 'flex';
+}
+
+async function marquerJustifie(agentId, dateISO) {
+  const res = await fetch('/api/justifications', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ agentId, date: dateISO })
+  });
+  if (!res.ok) return;
+  const data = await res.json();
+  if (!_rapportRHData.justifsManuelles) _rapportRHData.justifsManuelles = [];
+  _rapportRHData.justifsManuelles.push(data);
+  voirJoursAbsents(agentId);
+}
+
+async function retirerJustifManuelle(id, agentId) {
+  const res = await fetch('/api/justifications/' + id, { method: 'DELETE' });
+  if (!res.ok) return;
+  if (_rapportRHData.justifsManuelles)
+    _rapportRHData.justifsManuelles = _rapportRHData.justifsManuelles.filter(j => j.id !== id);
+  voirJoursAbsents(agentId);
 }
 
 function fermerModalAbsences() {
