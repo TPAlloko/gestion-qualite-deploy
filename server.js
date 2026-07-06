@@ -16,7 +16,7 @@ const BUREAU_RAYON = 50; // mètres
 
 // ── Horaires de travail ──
 const HEURE_DEBUT  = 9;  // 09h
-const MINUTE_DEBUT = 10; // tolérance 10 min — retard si arrivée après 09h10
+const MINUTE_DEBUT = 30; // tolérance 30 min — retard si arrivée après 09h30
 const HEURE_FIN    = 17; // 17h00 — départ prévu
 
 // Back Office : télétravail un samedi sur deux à partir du samedi 20 juin 2026 (dateStr format "DD/MM/YYYY")

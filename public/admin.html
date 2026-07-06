@@ -742,7 +742,7 @@ const socket = io();
 let agentsCache = [];
 let filtrePresence = 'tous'; // 'tous' | 'presents' | 'absents' | 'retards'
 const HEURE_DEBUT  = 9;
-const MINUTE_DEBUT = 10; // tolérance — retard si arrivée après 09h10
+const MINUTE_DEBUT = 30; // tolérance — retard si arrivée après 09h30
 function isRetard(p) {
   if (p.type !== 'entree' || !p.heure) return false;
   const [h, m] = p.heure.split(':').map(Number);
