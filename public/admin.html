@@ -1108,7 +1108,7 @@ function filtrerAgentsParPoste(service) {
 }
 
 async function chargerAgents() {
-  const agents = await fetch('/api/agents').then(r=>r.json());
+  const agents = await fetch('/api/agents?tous=1').then(r=>r.json());
   agentsCache = agents;
 
   // Filtres
@@ -1155,23 +1155,33 @@ async function chargerAgents() {
   liste.forEach(a => {
     const nomAffiche = a.nom_complet || `${a.prenom} ${a.nom}`;
     const init = nomAffiche.split(' ').filter(w=>w).map(w=>w[0]).slice(0,2).join('').toUpperCase();
+    const isActif = a.actif !== false;
     const serviceBadge = a.service === 'Back Office'
       ? `<span class="badge" style="background:#eaf4fb;color:#1A5676;">🏢 BO</span>`
       : a.service === 'Call Center'
       ? `<span class="badge" style="background:#fff3e0;color:#e67e22;">📞 CC</span>`
       : `<span class="badge" style="background:#f3e8ff;color:#7c3aed;">👔 SUP</span>`;
-    tbody.innerHTML += `<tr>
+    const statutBadge = isActif
+      ? ''
+      : `<span class="badge" style="background:#fde8e8;color:#c0392b;margin-left:6px;">🤰 Congé</span>`;
+    const toggleBtn = isActif
+      ? `<button class="btn btn-sm" onclick="toggleActifAgent('${a.id}', false)" title="Mettre en congé / suspension"
+           style="background:#fff3e0;color:#e67e22;border:1px solid #e67e22;">⏸️</button>`
+      : `<button class="btn btn-sm" onclick="toggleActifAgent('${a.id}', true)" title="Réactiver"
+           style="background:#e8f5e9;color:#1e8449;border:1px solid #1e8449;">▶️ Réactiver</button>`;
+    tbody.innerHTML += `<tr style="${isActif ? '' : 'opacity:0.6;background:#fdf9f9;'}">
       <td><span class="badge" style="background:#f0f4f8;color:#444;font-family:monospace;">${a.id}</span></td>
       <td><div class="agent-cell">
         <div class="avatar-sm" style="${a.service==='Back Office'?'':'background:linear-gradient(135deg,#e67e22,#f39c12);'}">${init}</div>
-        <div><div class="nom">${nomAffiche}</div></div>
+        <div><div class="nom">${nomAffiche}${statutBadge}</div></div>
       </div></td>
       <td style="font-size:0.82rem;">${a.poste}</td>
       <td>${serviceBadge}</td>
       <td style="font-size:0.8rem;color:#666;">${a.telephone||'—'}</td>
       <td style="font-size:0.78rem;color:#666;">${a.email||'—'}</td>
-      <td>
+      <td style="display:flex;gap:4px;flex-wrap:wrap;">
         <button class="btn btn-outline btn-sm" onclick="editerAgent('${a.id}')">✏️</button>
+        ${toggleBtn}
         <button class="btn btn-danger btn-sm" onclick="supprimerAgent('${a.id}')">🗑️</button>
       </td>
     </tr>`;
@@ -1200,6 +1210,15 @@ async function sauvegarderAgent() {
 async function supprimerAgent(id) {
   if (!confirm('Supprimer cet agent ?')) return;
   await fetch(`/api/agents/${id}`, { method:'DELETE' });
+  chargerAgents();
+}
+
+async function toggleActifAgent(id, actif) {
+  await fetch(`/api/agents/${id}/actif`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ actif })
+  });
   chargerAgents();
 }
 

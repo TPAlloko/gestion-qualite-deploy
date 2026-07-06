@@ -162,6 +162,14 @@ async function initDB() {
     DELETE FROM agents WHERE nom = 'PALE' OR nom LIKE '%DIARRASSOUBA%';
   `).catch(() => {});
 
+  // Migration : champ actif pour la gestion des congés longue durée
+  await pool.query(`
+    ALTER TABLE agents ADD COLUMN IF NOT EXISTS actif BOOLEAN DEFAULT true;
+    UPDATE agents SET actif = false
+      WHERE (nom = 'OUATTARA' AND prenom = 'Hawa')
+         OR nom_complet = 'Hawa OUATTARA';
+  `).catch(() => {});
+
   // Synchroniser les noms dans les pointages si un agent a été renommé
   await pool.query(`
     UPDATE pointages p
@@ -259,8 +267,20 @@ app.get('/api/infos', (req, res) => {
 
 // ── Agents ──
 app.get('/api/agents', async (req, res) => {
-  const { rows } = await pool.query('SELECT * FROM agents ORDER BY nom');
+  const tous = req.query.tous === '1';
+  const { rows } = await pool.query(
+    tous ? 'SELECT * FROM agents ORDER BY nom'
+         : 'SELECT * FROM agents WHERE actif = true ORDER BY nom'
+  );
   res.json(rows);
+});
+
+app.patch('/api/agents/:id/actif', requireAuth, requireAdmin, async (req, res) => {
+  const { actif } = req.body;
+  await pool.query('UPDATE agents SET actif = $1 WHERE id = $2', [!!actif, req.params.id.toUpperCase()]);
+  const { rows } = await pool.query('SELECT * FROM agents ORDER BY nom');
+  io.emit('agents-mis-a-jour', rows);
+  res.json({ ok: true });
 });
 
 app.post('/api/agents', async (req, res) => {
@@ -333,7 +353,7 @@ app.delete('/api/pointages/:id', requireAuth, requireAdmin, async (req, res) => 
 // ── Stats ──
 app.get('/api/stats', async (req, res) => {
   const today = new Date().toLocaleDateString('fr-FR');
-  const { rows: agents }   = await pool.query('SELECT id, service FROM agents');
+  const { rows: agents }   = await pool.query('SELECT id, service FROM agents WHERE actif = true');
   const { rows: pointages } = await pool.query(
     'SELECT * FROM pointages WHERE date = $1', [today]
   );
@@ -665,7 +685,7 @@ app.delete('/api/justifications/:id', requireAuth, requireAdmin, async (req, res
 
 app.get('/api/superviseur/stats', requireSuperviseur, async (req, res) => {
   const today = new Date().toLocaleDateString('fr-FR');
-  const { rows: agents }   = await pool.query('SELECT id, service FROM agents');
+  const { rows: agents }   = await pool.query('SELECT id, service FROM agents WHERE actif = true');
   const { rows: pointages } = await pool.query('SELECT * FROM pointages WHERE date = $1', [today]);
   const avecSortieS = new Set(pointages.filter(p => p.type === 'sortie').map(p => p.agent_id));
   const presents = new Set(pointages.filter(p => p.type === 'entree' && avecSortieS.has(p.agent_id)).map(p => p.agent_id));
@@ -681,7 +701,7 @@ app.get('/api/superviseur/stats', requireSuperviseur, async (req, res) => {
 });
 
 app.get('/api/superviseur/agents', requireSuperviseur, async (req, res) => {
-  const { rows } = await pool.query('SELECT * FROM agents ORDER BY nom');
+  const { rows } = await pool.query('SELECT * FROM agents WHERE actif = true ORDER BY nom');
   res.json(rows);
 });
 
