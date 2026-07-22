@@ -322,6 +322,15 @@ function estTeletravailBOSamedi(dateStr) {
   return semaines % 2 === 0;
 }
 
+function estEquipeBO(agent) {
+  if (agent.service === 'Back Office') return true;
+  if (agent.service === 'Superviseur') {
+    const nom = (agent.nom_complet || `${agent.prenom || ''} ${agent.nom || ''}`).toUpperCase();
+    return nom.includes('ALLOKO') && nom.includes('KOFFI');
+  }
+  return false;
+}
+
 // ── Horloge ──
 function majHeure() {
   document.getElementById('heure-header').textContent =
@@ -458,7 +467,7 @@ function filtrerPresences() {
     const retard   = present && entree.retard;
 
     let etat = present ? (retard ? 'retard' : 'present') : 'absent';
-    if (!present && !entree && agent.service === 'Back Office' && estTeletravailBOSamedi(today)) etat = 'teletravail';
+    if (!present && !entree && estEquipeBO(agent) && estTeletravailBOSamedi(today)) etat = 'teletravail';
     if (statut && etat !== statut) return;
 
     const nom = agent.nom_complet || `${agent.prenom} ${agent.nom}`;

@@ -772,6 +772,14 @@ function estTeletravailBOSamedi(dateStr) {
   const semaines = Math.round((dt - ancre) / (7 * 24 * 3600 * 1000));
   return semaines % 2 === 0; // semaines paires depuis l'ancre = télétravail (donc pas d'absence attendue)
 }
+function estEquipeBO(agent) {
+  if (agent.service === 'Back Office') return true;
+  if (agent.service === 'Superviseur') {
+    const nom = (agent.nom_complet || `${agent.prenom || ''} ${agent.nom || ''}`).toUpperCase();
+    return nom.includes('ALLOKO') && nom.includes('KOFFI');
+  }
+  return false;
+}
 function jourPoids(dateStr) {
   const dt = parseDateFR(dateStr);
   return (dt && dt.getDay() === 6) ? 0.5 : 1; // samedi = demi-journée
@@ -850,7 +858,7 @@ async function chargerPresences() {
     const sortie = pts.find(p => p.agentId === a.id && p.type === 'sortie');
     let statut = 'absent';
     if (entree && sortie) statut = isRetard(entree) ? 'retard' : 'present';
-    else if (!entree && a.service === 'Back Office' && estTeletravailBOSamedi(today)) statut = 'teletravail';
+    else if (!entree && estEquipeBO(a) && estTeletravailBOSamedi(today)) statut = 'teletravail';
     statutMap[a.id] = { statut, entree, sortie };
   });
 
@@ -946,7 +954,7 @@ async function filtrerParStatut(statut) {
     const sortie = pts.find(p => p.agentId === a.id && p.type === 'sortie');
     let st = 'absent';
     if (entree && sortie) st = isRetard(entree) ? 'retard' : 'present';
-    else if (!entree && a.service === 'Back Office' && estTeletravailBOSamedi(today)) st = 'teletravail';
+    else if (!entree && estEquipeBO(a) && estTeletravailBOSamedi(today)) st = 'teletravail';
     statutMap[a.id] = { statut: st, entree, sortie };
   });
 
@@ -1863,7 +1871,7 @@ async function genererRapportRH() {
   // Calcul par agent
   const rapport = agentsFiltres.map(a => {
     // Back Office : samedi télétravail (1 sur 2 depuis le 20/06/2026) → exclu du décompte, pas une absence
-    const estBO = serviceParAgent[a.id] === 'Back Office';
+    const estBO = estEquipeBO(a);
     const joursOuvresAgent = estBO ? joursOuvres.filter(d => !estTeletravailBOSamedi(d)) : joursOuvres;
     const nbJAgent = joursOuvresAgent.reduce((s, d) => s + jourPoids(d), 0) || 1;
 
