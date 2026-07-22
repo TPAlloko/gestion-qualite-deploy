@@ -1509,7 +1509,7 @@ function showTab(id, navBtn) {
     chargerHistorique();
   }
   if (id === 'tab-agents')     chargerAgents();
-  if (id === 'tab-rapports')   chargerRecap();
+  if (id === 'tab-rapports')   { chargerRecap(); genererRapportRH(); }
   if (id === 'tab-acces')      chargerUsers();
   if (id === 'tab-demandes')   chargerDemandes();
 }
