@@ -1901,8 +1901,8 @@ async function genererRapportRH() {
     // Jours couverts par une justification manuelle
     const joursViaManuelle = new Set(justifsManuAgent.map(j => j.date));
     const joursJustifies = new Set([...joursViaDemandeAppr, ...joursAbsents.filter(d => joursViaManuelle.has(d))]);
-    const avecJustif = joursJustifies.size;
-    const sansJustif = joursAbsents.length - avecJustif;
+    const avecJustif = [...joursJustifies].reduce((s, d) => s + jourPoids(d), 0);
+    const sansJustif = absences - avecJustif;
 
     const permissions = demandesPeriode.filter(d =>
       d.agentId === a.id && ['permission','conge','retard'].includes(d.type) && d.statut !== 'refuse'
