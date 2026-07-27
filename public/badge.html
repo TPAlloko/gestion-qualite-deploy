@@ -673,11 +673,8 @@ async function demarrerCamera() {
     document.getElementById('camera-container').innerHTML =
       `<div style="padding:30px;text-align:center;">
         <div style="font-size:3rem;margin-bottom:10px;">📷</div>
-        <div style="opacity:0.7;font-size:0.88rem;">Caméra non disponible.<br>Vérifiez les permissions.</div>
-        <button onclick="passerSansPhoto()" style="margin-top:16px;padding:10px 20px;border-radius:10px;
-          border:1px solid rgba(255,255,255,0.3);background:transparent;color:white;cursor:pointer;font-size:0.85rem;">
-          Continuer sans photo →
-        </button>
+        <div style="font-weight:700;font-size:0.95rem;margin-bottom:8px;">Photo obligatoire</div>
+        <div style="opacity:0.7;font-size:0.85rem;">La caméra est inaccessible.<br>Autorisez la caméra dans les paramètres de votre navigateur puis rechargez la page.</div>
       </div>`;
   }
 }
@@ -723,14 +720,12 @@ function reprendrPhoto() {
 }
 
 function validerPhoto() {
+  if (!photoBase64) {
+    afficherToastGeo('Vous devez prendre une photo pour badger.');
+    return;
+  }
   arreterCamera();
-  // Soumettre directement le badgeage avec le type déjà choisi
   badger(typeSelectionne);
-}
-
-function passerSansPhoto() {
-  photoBase64 = null;
-  validerPhoto();
 }
 
 // ══════════════════════════════════════════
