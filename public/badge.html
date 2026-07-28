@@ -246,6 +246,7 @@
              margin:0 auto 10px; }
   @keyframes spin { to{transform:rotate(360deg)} }
 </style>
+<script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
 </head>
 <body>
 
@@ -381,6 +382,7 @@ let typeSelectionne  = null;   // 'entree' ou 'sortie'
 let photoBase64 = null;        // photo capturée
 let cameraStream = null;       // flux caméra
 let badgageEnCours = false;    // verrou anti-double-envoi
+let faceModelsReady = false;
 
 
 // ── Géolocalisation ──
@@ -414,7 +416,7 @@ function afficherErreurGeo(msg) {
     </div>`;
 }
 
-function afficherToastGeo(msg) {
+function afficherToastGeo(msg, emoji = '📍') {
   let el = document.getElementById('geo-toast');
   if (!el) {
     el = document.createElement('div');
@@ -425,7 +427,7 @@ function afficherToastGeo(msg) {
       'box-shadow:0 6px 24px rgba(0,0,0,0.5);line-height:1.5;';
     document.body.appendChild(el);
   }
-  el.innerHTML = `<div style="font-size:1.5rem;margin-bottom:6px;">📍</div><div>${msg}</div>`;
+  el.innerHTML = `<div style="font-size:1.5rem;margin-bottom:6px;">${emoji}</div><div>${msg}</div>`;
   el.style.display = 'block';
   clearTimeout(el._timer);
   el._timer = setTimeout(() => { el.style.display = 'none'; }, 7000);
@@ -686,7 +688,16 @@ function arreterCamera() {
   }
 }
 
-function prendrPhoto() {
+async function chargerModelesFaceApi() {
+  try {
+    await faceapi.nets.tinyFaceDetector.loadFromUri(
+      'https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/weights'
+    );
+    faceModelsReady = true;
+  } catch(e) {}
+}
+
+async function prendrPhoto() {
   const video = document.getElementById('camera-video');
   const canvas = document.getElementById('photo-canvas');
   const ctx = canvas.getContext('2d');
@@ -699,7 +710,32 @@ function prendrPhoto() {
   ctx.scale(-1, 1);
   ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-  photoBase64 = canvas.toDataURL('image/jpeg', 0.85);
+  const base64 = canvas.toDataURL('image/jpeg', 0.85);
+
+  // Vérification de visage si modèles chargés
+  if (faceModelsReady) {
+    const btnShoot = document.getElementById('btn-shoot');
+    btnShoot.disabled = true;
+    btnShoot.innerHTML = '<span>⏳</span> Vérification...';
+    try {
+      const detections = await faceapi.detectAllFaces(
+        canvas,
+        new faceapi.TinyFaceDetectorOptions({ scoreThreshold: 0.4 })
+      );
+      if (detections.length === 0) {
+        btnShoot.disabled = false;
+        btnShoot.innerHTML = '<span>📷</span> Prendre la photo';
+        afficherToastGeo('Aucun visage détecté. Placez votre visage dans le cadre et réessayez.', '📷');
+        return;
+      }
+    } catch(e) {
+      // Erreur de détection → on accepte la photo
+    }
+    btnShoot.disabled = false;
+    btnShoot.innerHTML = '<span>📷</span> Prendre la photo';
+  }
+
+  photoBase64 = base64;
 
   // Afficher preview
   document.getElementById('photo-img').src = photoBase64;
@@ -849,6 +885,7 @@ function recommencer() {
 // INIT
 // ══════════════════════════════════════════
 chargerAgents();
+chargerModelesFaceApi();
 </script>
 </body>
 </html>
