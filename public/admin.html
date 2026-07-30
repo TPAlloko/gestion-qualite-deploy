@@ -1882,27 +1882,36 @@ async function genererRapportRH() {
     const entreesPresentes = entrees.filter(e =>
       datesSortie.has(e.date) || (e.date && e.date.includes('/07/2026'))
     );
-    const presences = entreesPresentes.reduce((s, p) => s + jourPoids(p.date), 0);
     const joursRetard = entreesPresentes.filter(p => isRetard(p));
     const retards   = joursRetard.length;
-    const datesPresent = new Set(entreesPresentes.map(p => p.date));
+
+    // Toutes les demandes de l'agent dans la période (hors refusées)
+    const demandesAbs = demandesPeriode.filter(d => d.agentId === a.id && d.statut !== 'refuse');
+    const justifsManuAgent = justifsManuelles.filter(j => j.agentId === a.id);
+    // Juillet 2026 : justif manuelle = présence (grâce 1er mois de pointage obligatoire)
+    const justifJuil2026ISOSet = new Set(
+      justifsManuAgent.map(j => toISOStr(j.date)).filter(iso => iso >= '2026-07-01' && iso <= '2026-07-31')
+    );
+    const datesPresent = new Set([
+      ...entreesPresentes.map(p => p.date),
+      ...joursOuvresAgent.filter(d => justifJuil2026ISOSet.has(toISOStr(d)))
+    ]);
+    const presences = [...datesPresent].reduce((s, d) => s + jourPoids(d), 0);
     const joursAbsents = joursOuvresAgent.filter(d => !datesPresent.has(d));
     const absences  = joursAbsents.reduce((s, d) => s + jourPoids(d), 0);
     const taux      = ((presences / nbJAgent) * 100).toFixed(1);
 
-    // Toutes les demandes de l'agent dans la période (hors refusées) — tout type peut avoir une PJ
-    const demandesAbs = demandesPeriode.filter(d =>
-      d.agentId === a.id && d.statut !== 'refuse'
-    );
-    const justifsManuAgent = justifsManuelles.filter(j => j.agentId === a.id);
     // Jours couverts par une demande approuvée
     const joursViaDemandeAppr = new Set(joursAbsents.filter(date => {
       const iso = toISOStr(date);
       return demandesAbs.some(d => d.statut === 'approuve' && iso >= toISOStr(d.dateDebut) && iso <= toISOStr(d.dateFin || d.dateDebut));
     }));
-    // Jours couverts par une justification manuelle
-    const joursViaManuelle = new Set(justifsManuAgent.map(j => j.date));
-    const joursJustifies = new Set([...joursViaDemandeAppr, ...joursAbsents.filter(d => joursViaManuelle.has(d))]);
+    // Jours couverts par une justification manuelle (comparaison normalisée ISO)
+    const joursViaManuelleISO = new Set(justifsManuAgent.map(j => toISOStr(j.date)));
+    const joursJustifies = new Set([
+      ...joursViaDemandeAppr,
+      ...joursAbsents.filter(d => joursViaManuelleISO.has(toISOStr(d)))
+    ]);
     const avecJustif = [...joursJustifies].reduce((s, d) => s + jourPoids(d), 0);
     const sansJustif = absences - avecJustif;
 
