@@ -1878,8 +1878,10 @@ async function genererRapportRH() {
     const ptsPeriodeAgent = ptsPeriode.filter(p => p.agentId === a.id);
     const datesSortie = new Set(ptsPeriodeAgent.filter(p => p.type === 'sortie').map(p => p.date));
     const entrees = ptsPeriodeAgent.filter(p => p.type === 'entree');
-    // Présence = entrée ET sortie le même jour
-    const entreesPresentes = entrees.filter(e => datesSortie.has(e.date));
+    // Présence = entrée ET sortie le même jour (juillet 2026 : grâce — entrée seule suffit)
+    const entreesPresentes = entrees.filter(e =>
+      datesSortie.has(e.date) || (e.date && e.date.includes('/07/2026'))
+    );
     const presences = entreesPresentes.reduce((s, p) => s + jourPoids(p.date), 0);
     const joursRetard = entreesPresentes.filter(p => isRetard(p));
     const retards   = joursRetard.length;
