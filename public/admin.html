@@ -1915,6 +1915,11 @@ async function genererRapportRH() {
     const avecJustif = [...joursJustifies].reduce((s, d) => s + jourPoids(d), 0);
     const sansJustif = absences - avecJustif;
 
+    // BO depuis 01/08/2026 : absences justifiées comptées comme présences dans l'export Excel
+    const justifAbsBO = estBO
+      ? [...joursJustifies].filter(d => toISOStr(d) >= '2026-08-01').reduce((s, d) => s + jourPoids(d), 0)
+      : 0;
+
     const permissions = demandesPeriode.filter(d =>
       d.agentId === a.id && ['permission','conge','retard'].includes(d.type) && d.statut !== 'refuse'
     ).length;
@@ -1924,7 +1929,7 @@ async function genererRapportRH() {
       nom: a.nom_complet || `${a.prenom} ${a.nom}`,
       service: serviceParAgent[a.id] || '—',
       presences, absences, retards, taux, nbJAgent,
-      avecJustif, sansJustif, demandesAbsTotal: demandesAbs.length,
+      avecJustif, sansJustif, justifAbsBO, demandesAbsTotal: demandesAbs.length,
       permissions, joursAbsents, joursRetard
     };
   });
@@ -2019,7 +2024,13 @@ async function exporterRapportRHExcel() {
   rapport.forEach(a => { const s = svcOrdreXls.includes(a.service) ? a.service : 'Autre'; (svcGroupsXls[s] = svcGroupsXls[s] || []).push(a); });
   [...svcOrdreXls, 'Autre'].filter(s => svcGroupsXls[s]?.length).forEach(svc => {
     rows.push([`── ${svc.toUpperCase()} ──`, '', '', '', '', '', '', '', '', '', '']);
-    svcGroupsXls[svc].forEach(a => rows.push([a.nom, a.id, a.service, a.nbJAgent ?? nbJ, a.presences, a.retards, a.absences, a.taux + '%', a.avecJustif, a.sansJustif, a.permissions]));
+    svcGroupsXls[svc].forEach(a => {
+      const j = a.justifAbsBO || 0;
+      const presXls = a.presences + j;
+      const absXls  = a.absences  - j;
+      const tauxXls = (((presXls) / (a.nbJAgent ?? nbJ)) * 100).toFixed(1) + '%';
+      rows.push([a.nom, a.id, a.service, a.nbJAgent ?? nbJ, presXls, a.retards, absXls, tauxXls, a.avecJustif - j, a.sansJustif, a.permissions]);
+    });
   });
 
   const ws = XLSX.utils.aoa_to_sheet(rows);
