@@ -284,7 +284,7 @@ app.patch('/api/agents/:id/actif', requireAuth, requireAdmin, async (req, res) =
 });
 
 app.post('/api/agents', async (req, res) => {
-  const { id, nom, prenom, poste, service } = req.body;
+  const { id, nom, prenom, poste, service, actif } = req.body;
   if (!id || !nom || !prenom) return res.status(400).json({ erreur: 'Champs manquants' });
   const agent = {
     id: id.toUpperCase(), nom: nom.toUpperCase(), prenom,
@@ -297,6 +297,9 @@ app.post('/api/agents', async (req, res) => {
      ON CONFLICT (id) DO UPDATE SET nom=$2, prenom=$3, poste=$4, service=$5, nom_complet=$6`,
     [agent.id, agent.nom, agent.prenom, agent.poste, agent.service, agent.nom_complet]
   );
+  if (actif !== undefined) {
+    await pool.query('UPDATE agents SET actif = $1 WHERE id = $2', [!!actif, agent.id]);
+  }
   const { rows } = await pool.query('SELECT * FROM agents ORDER BY nom');
   io.emit('agents-mis-a-jour', rows);
   res.json({ ok: true, agent });

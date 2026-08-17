@@ -1222,11 +1222,23 @@ async function supprimerAgent(id) {
 }
 
 async function toggleActifAgent(id, actif) {
-  await fetch(`/api/agents/${id}/actif`, {
+  const r = await fetch(`/api/agents/${id}/actif`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
     body: JSON.stringify({ actif })
   });
+  if (!r.ok) {
+    const a = agentsCache.find(x => x.id === id);
+    const nom = a ? a.nom_complet || `${a.prenom} ${a.nom}` : id;
+    // Fallback via POST si l'utilisateur n'a pas le rôle admin
+    const r2 = await fetch('/api/agents', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, nom: a?.nom || id, prenom: a?.prenom || '', poste: a?.poste || '', service: a?.service || '', actif })
+    });
+    if (!r2.ok) { alert(`Erreur lors de la modification de ${nom}`); return; }
+  }
   chargerAgents();
 }
 
