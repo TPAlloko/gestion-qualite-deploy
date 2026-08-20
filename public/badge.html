@@ -720,10 +720,9 @@ function arreterCamera() {
 // DÉFI DE VIVACITÉ — action aléatoire à chaque badgeage
 // ══════════════════════════════════════════
 const LIVENESS_ACTIONS = [
-  { key:'clignement', icon:'😉', label:'Clignez des yeux' },
-  { key:'tete',       icon:'🔄', label:'Tournez légèrement la tête' },
-  { key:'bouche',     icon:'😮', label:'Ouvrez la bouche' },
-  { key:'sourire',    icon:'😄', label:'Souriez' }
+  { key:'tete',    icon:'🔄', label:'Tournez légèrement la tête' },
+  { key:'bouche',  icon:'😮', label:'Ouvrez la bouche' },
+  { key:'sourire', icon:'😄', label:'Souriez' }
 ];
 const LIVENESS_DUREE_MS = 9000;         // temps laissé pour réaliser l'action avant nouvelle tentative
 const LIVENESS_CAPTURE_WINDOW_MS = 15000; // temps laissé pour reprendre une pose neutre et prendre la photo
@@ -731,10 +730,9 @@ const LIVENESS_CAPTURE_WINDOW_MS = 15000; // temps laissé pour reprendre une po
 let livenessInterval = null;
 let livenessTimeoutTimer = null;
 let livenessAction = null;
-let livenessState = 'calibrage'; // calibrage | attente | ferme | pret | detecte
+let livenessState = 'calibrage'; // calibrage | attente | pret | detecte
 let livenessBaseline = null;
 let livenessBaselineSamples = [];
-let livenessFermeDepuis = 0;
 let captureCountdownInterval = null;
 
 function choisirActionAleatoire() {
@@ -746,22 +744,10 @@ function choisirActionAleatoire() {
 
 function distancePts(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
 
-function eyeAspectRatio(p) {
-  const a = distancePts(p[1], p[5]);
-  const b = distancePts(p[2], p[4]);
-  const c = distancePts(p[0], p[3]);
-  return c ? (a + b) / (2 * c) : 0;
-}
-
 function mesurerAction(landmarks, key) {
   const pts = landmarks.positions;
   if (!pts || pts.length < 68) return null;
 
-  if (key === 'clignement') {
-    const ed = eyeAspectRatio([pts[36],pts[37],pts[38],pts[39],pts[40],pts[41]]);
-    const eg = eyeAspectRatio([pts[42],pts[43],pts[44],pts[45],pts[46],pts[47]]);
-    return (ed + eg) / 2;
-  }
   if (key === 'bouche') {
     const largeur = distancePts(pts[60], pts[64]);
     return largeur ? distancePts(pts[62], pts[66]) / largeur : null;
@@ -779,10 +765,9 @@ function mesurerAction(landmarks, key) {
 
 function seuilFranchi(key, valeur, baseline) {
   switch (key) {
-    case 'clignement': return valeur < baseline * 0.62;
-    case 'bouche':      return valeur > Math.max(baseline * 1.8, baseline + 0.08);
-    case 'sourire':     return valeur > baseline * 1.15;
-    case 'tete':        return Math.abs(valeur - baseline) > 0.11;
+    case 'bouche':  return valeur > Math.max(baseline * 1.8, baseline + 0.08);
+    case 'sourire': return valeur > baseline * 1.15;
+    case 'tete':    return Math.abs(valeur - baseline) > 0.11;
     default: return false;
   }
 }
@@ -851,22 +836,9 @@ async function demarrerDefiVivacite() {
 
     if (livenessState === 'attente') {
       if (seuilFranchi(livenessAction.key, mesure, livenessBaseline)) {
-        if (livenessAction.key === 'clignement') {
-          livenessState = 'ferme';
-          livenessFermeDepuis = Date.now();
-        } else {
-          confirmerVivacite();
-        }
+        confirmerVivacite();
       }
       return;
-    }
-
-    if (livenessState === 'ferme') {
-      if (mesure >= livenessBaseline * 0.85) {
-        confirmerVivacite();
-      } else if (Date.now() - livenessFermeDepuis > 1500) {
-        livenessState = 'attente';
-      }
     }
   }, 180);
 }
