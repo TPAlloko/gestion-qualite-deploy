@@ -896,7 +896,7 @@ function capturerPhotoFinale() {
 
 async function chargerModelesFaceApi() {
   try {
-    const weightsUrl = 'https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/weights';
+    const weightsUrl = 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js/weights';
     await Promise.all([
       faceapi.nets.tinyFaceDetector.loadFromUri(weightsUrl),
       faceapi.nets.faceLandmark68TinyNet.loadFromUri(weightsUrl)
