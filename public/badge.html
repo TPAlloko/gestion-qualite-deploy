@@ -349,6 +349,10 @@
     </div>
     <div class="liveness-status" id="liveness-status">🔍 Positionnez votre visage dans le cadre...</div>
 
+    <button class="btn-shoot" id="btn-capturer" onclick="capturerPhotoFinale()" style="display:none;width:100%;margin-top:12px;">
+      <span>📷</span> Prendre la photo
+    </button>
+
     <!-- Preview après capture -->
     <div id="photo-preview">
       <img id="photo-img" src="" alt="Photo" />
@@ -709,6 +713,7 @@ function arreterCamera() {
   }
   clearInterval(livenessInterval);
   clearTimeout(livenessTimeoutTimer);
+  clearInterval(captureCountdownInterval);
 }
 
 // ══════════════════════════════════════════
@@ -720,15 +725,17 @@ const LIVENESS_ACTIONS = [
   { key:'bouche',     icon:'😮', label:'Ouvrez la bouche' },
   { key:'sourire',    icon:'😄', label:'Souriez' }
 ];
-const LIVENESS_DUREE_MS = 9000; // temps laissé pour réaliser l'action avant nouvelle tentative
+const LIVENESS_DUREE_MS = 9000;         // temps laissé pour réaliser l'action avant nouvelle tentative
+const LIVENESS_CAPTURE_WINDOW_MS = 6000; // temps laissé pour reprendre une pose neutre et prendre la photo
 
 let livenessInterval = null;
 let livenessTimeoutTimer = null;
 let livenessAction = null;
-let livenessState = 'calibrage'; // calibrage | attente | ferme | detecte
+let livenessState = 'calibrage'; // calibrage | attente | ferme | pret | detecte
 let livenessBaseline = null;
 let livenessBaselineSamples = [];
 let livenessFermeDepuis = 0;
+let captureCountdownInterval = null;
 
 function choisirActionAleatoire() {
   const pool = livenessAction
@@ -783,6 +790,8 @@ function seuilFranchi(key, valeur, baseline) {
 async function demarrerDefiVivacite() {
   clearInterval(livenessInterval);
   clearTimeout(livenessTimeoutTimer);
+  clearInterval(captureCountdownInterval);
+  document.getElementById('btn-capturer').style.display = 'none';
 
   const statusEl = document.getElementById('liveness-status');
 
@@ -865,15 +874,43 @@ async function demarrerDefiVivacite() {
 function confirmerVivacite() {
   clearInterval(livenessInterval);
   clearTimeout(livenessTimeoutTimer);
-  livenessState = 'detecte';
-  const statusEl = document.getElementById('liveness-status');
-  statusEl.className = 'liveness-status ok';
-  statusEl.textContent = '✅ Vivacité confirmée';
+  livenessState = 'pret';
   livenessActionValidee = livenessAction ? livenessAction.key : null;
-  capturerPhotoFinale();
+
+  document.getElementById('liveness-action-badge').innerHTML = '<span>✅</span><span>Vivacité confirmée</span>';
+  activerCaptureManuelle();
+}
+
+// Le geste ne sert que de preuve de vivacité — la photo réellement
+// conservée est prise ensuite, manuellement, une fois l'agent en pose neutre.
+function activerCaptureManuelle() {
+  const statusEl = document.getElementById('liveness-status');
+  const btnCapturer = document.getElementById('btn-capturer');
+  btnCapturer.style.display = 'flex';
+
+  let restant = Math.ceil(LIVENESS_CAPTURE_WINDOW_MS / 1000);
+  statusEl.className = 'liveness-status ok';
+  statusEl.textContent = `✅ Reprenez une pose neutre puis prenez votre photo (${restant}s)`;
+
+  clearInterval(captureCountdownInterval);
+  captureCountdownInterval = setInterval(() => {
+    restant--;
+    if (restant <= 0) {
+      clearInterval(captureCountdownInterval);
+      btnCapturer.style.display = 'none';
+      statusEl.className = 'liveness-status warn';
+      statusEl.textContent = '⏱️ Délai dépassé, nouvelle vérification...';
+      livenessTimeoutTimer = setTimeout(demarrerDefiVivacite, 800);
+      return;
+    }
+    statusEl.textContent = `✅ Reprenez une pose neutre puis prenez votre photo (${restant}s)`;
+  }, 1000);
 }
 
 function capturerPhotoFinale() {
+  clearInterval(captureCountdownInterval);
+  document.getElementById('btn-capturer').style.display = 'none';
+
   const video = document.getElementById('camera-video');
   const canvas = document.getElementById('photo-canvas');
   const ctx = canvas.getContext('2d');
