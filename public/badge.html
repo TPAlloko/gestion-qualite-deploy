@@ -141,6 +141,20 @@
 
   canvas#photo-canvas { display:none; }
 
+  /* ── Défi de vivacité ── */
+  .liveness-badge {
+    position:absolute; top:12px; left:50%; transform:translateX(-50%);
+    background:rgba(0,0,0,0.6); backdrop-filter:blur(4px);
+    padding:8px 16px; border-radius:20px; font-size:0.92rem; font-weight:700;
+    display:flex; align-items:center; gap:8px; white-space:nowrap; z-index:2;
+  }
+  .liveness-status {
+    text-align:center; font-size:0.85rem; opacity:0.65; margin-top:12px; min-height:20px;
+    transition:opacity 0.2s, color 0.2s;
+  }
+  .liveness-status.ok   { color:#2ecc71; opacity:1; font-weight:700; }
+  .liveness-status.warn { color:#f39c12; opacity:1; font-weight:700; }
+
   .photo-actions { display:flex; gap:10px; margin-top:12px; }
   .btn-shoot {
     flex:2; padding:14px; border-radius:12px; border:none;
@@ -318,7 +332,7 @@
   <div class="step" id="step-3">
     <div class="photo-header">
       <div class="agent-name-mini" id="photo-agent-nom"></div>
-      <div class="instruction">Placez votre visage dans le cadre et prenez votre photo</div>
+      <div class="instruction">Test de vivacité — suivez l'instruction affichée</div>
     </div>
 
     <!-- Vidéo caméra -->
@@ -331,21 +345,20 @@
         <div class="camera-corner c-bl"></div>
         <div class="camera-corner c-br"></div>
       </div>
+      <div class="liveness-badge" id="liveness-action-badge"></div>
     </div>
+    <div class="liveness-status" id="liveness-status">🔍 Positionnez votre visage dans le cadre...</div>
 
     <!-- Preview après capture -->
     <div id="photo-preview">
       <img id="photo-img" src="" alt="Photo" />
-      <div class="preview-ok-badge">✓ Photo capturée</div>
+      <div class="preview-ok-badge">✓ Vivacité confirmée</div>
     </div>
 
     <canvas id="photo-canvas"></canvas>
 
     <div class="photo-actions">
-      <button class="btn-shoot" id="btn-shoot" onclick="prendrPhoto()">
-        <span>📷</span> Prendre la photo
-      </button>
-      <button class="btn-retake" id="btn-retake" onclick="reprendrPhoto()">🔄 Reprendre</button>
+      <button class="btn-retake" id="btn-retake" onclick="reprendrPhoto()">🔄 Refaire le test</button>
     </div>
     <button class="btn-valider-photo" id="btn-valider-photo" onclick="validerPhoto()">
       ✓ Valider et badger
@@ -383,6 +396,8 @@ let photoBase64 = null;        // photo capturée
 let cameraStream = null;       // flux caméra
 let badgageEnCours = false;    // verrou anti-double-envoi
 let faceModelsReady = false;
+let landmarkModelsReady = false;
+let livenessActionValidee = null; // clé de l'action de vivacité confirmée (audit)
 
 
 // ── Géolocalisation ──
@@ -667,17 +682,23 @@ async function demarrerCamera() {
     // Montrer caméra, cacher preview
     document.getElementById('camera-container').style.display = 'flex';
     document.getElementById('photo-preview').style.display = 'none';
-    document.getElementById('btn-shoot').style.display = 'flex';
     document.getElementById('btn-retake').style.display = 'none';
     document.getElementById('btn-valider-photo').style.display = 'none';
     photoBase64 = null;
+
+    await new Promise(resolve => {
+      if (video.readyState >= 2) return resolve();
+      video.onloadedmetadata = resolve;
+    });
+    demarrerDefiVivacite();
   } catch(e) {
     document.getElementById('camera-container').innerHTML =
       `<div style="padding:30px;text-align:center;">
         <div style="font-size:3rem;margin-bottom:10px;">📷</div>
-        <div style="font-weight:700;font-size:0.95rem;margin-bottom:8px;">Photo obligatoire</div>
+        <div style="font-weight:700;font-size:0.95rem;margin-bottom:8px;">Caméra obligatoire</div>
         <div style="opacity:0.7;font-size:0.85rem;">La caméra est inaccessible.<br>Autorisez la caméra dans les paramètres de votre navigateur puis rechargez la page.</div>
       </div>`;
+    document.getElementById('liveness-status').textContent = '';
   }
 }
 
@@ -686,18 +707,173 @@ function arreterCamera() {
     cameraStream.getTracks().forEach(t => t.stop());
     cameraStream = null;
   }
+  clearInterval(livenessInterval);
+  clearTimeout(livenessTimeoutTimer);
 }
 
-async function chargerModelesFaceApi() {
-  try {
-    await faceapi.nets.tinyFaceDetector.loadFromUri(
-      'https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/weights'
-    );
-    faceModelsReady = true;
-  } catch(e) {}
+// ══════════════════════════════════════════
+// DÉFI DE VIVACITÉ — action aléatoire à chaque badgeage
+// ══════════════════════════════════════════
+const LIVENESS_ACTIONS = [
+  { key:'clignement', icon:'😉', label:'Clignez des yeux' },
+  { key:'tete',       icon:'🔄', label:'Tournez légèrement la tête' },
+  { key:'bouche',     icon:'😮', label:'Ouvrez la bouche' },
+  { key:'sourire',    icon:'😄', label:'Souriez' }
+];
+const LIVENESS_DUREE_MS = 9000; // temps laissé pour réaliser l'action avant nouvelle tentative
+
+let livenessInterval = null;
+let livenessTimeoutTimer = null;
+let livenessAction = null;
+let livenessState = 'calibrage'; // calibrage | attente | ferme | detecte
+let livenessBaseline = null;
+let livenessBaselineSamples = [];
+let livenessFermeDepuis = 0;
+
+function choisirActionAleatoire() {
+  const pool = livenessAction
+    ? LIVENESS_ACTIONS.filter(a => a.key !== livenessAction.key)
+    : LIVENESS_ACTIONS;
+  return pool[Math.floor(Math.random() * pool.length)];
 }
 
-async function prendrPhoto() {
+function distancePts(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+
+function eyeAspectRatio(p) {
+  const a = distancePts(p[1], p[5]);
+  const b = distancePts(p[2], p[4]);
+  const c = distancePts(p[0], p[3]);
+  return c ? (a + b) / (2 * c) : 0;
+}
+
+function mesurerAction(landmarks, key) {
+  const pts = landmarks.positions;
+  if (!pts || pts.length < 68) return null;
+
+  if (key === 'clignement') {
+    const ed = eyeAspectRatio([pts[36],pts[37],pts[38],pts[39],pts[40],pts[41]]);
+    const eg = eyeAspectRatio([pts[42],pts[43],pts[44],pts[45],pts[46],pts[47]]);
+    return (ed + eg) / 2;
+  }
+  if (key === 'bouche') {
+    const largeur = distancePts(pts[60], pts[64]);
+    return largeur ? distancePts(pts[62], pts[66]) / largeur : null;
+  }
+  if (key === 'sourire') {
+    const eyeDist = distancePts(pts[36], pts[45]);
+    return eyeDist ? distancePts(pts[48], pts[54]) / eyeDist : null;
+  }
+  if (key === 'tete') {
+    const largeur = distancePts(pts[0], pts[16]);
+    return largeur ? (pts[30].x - pts[0].x) / largeur : null;
+  }
+  return null;
+}
+
+function seuilFranchi(key, valeur, baseline) {
+  switch (key) {
+    case 'clignement': return valeur < baseline * 0.62;
+    case 'bouche':      return valeur > Math.max(baseline * 1.8, baseline + 0.08);
+    case 'sourire':     return valeur > baseline * 1.15;
+    case 'tete':        return Math.abs(valeur - baseline) > 0.11;
+    default: return false;
+  }
+}
+
+async function demarrerDefiVivacite() {
+  clearInterval(livenessInterval);
+  clearTimeout(livenessTimeoutTimer);
+
+  const statusEl = document.getElementById('liveness-status');
+
+  if (!landmarkModelsReady) {
+    statusEl.className = 'liveness-status';
+    statusEl.textContent = '⏳ Chargement de la vérification de vivacité...';
+    livenessTimeoutTimer = setTimeout(demarrerDefiVivacite, 700);
+    return;
+  }
+
+  livenessAction = choisirActionAleatoire();
+  livenessState = 'calibrage';
+  livenessBaseline = null;
+  livenessBaselineSamples = [];
+
+  document.getElementById('liveness-action-badge').innerHTML =
+    `<span>${livenessAction.icon}</span><span>${livenessAction.label}</span>`;
+  statusEl.className = 'liveness-status';
+  statusEl.textContent = '🔍 Placez votre visage dans le cadre...';
+
+  const debut = Date.now();
+  const video = document.getElementById('camera-video');
+  const options = new faceapi.TinyFaceDetectorOptions({ scoreThreshold: 0.4 });
+
+  livenessInterval = setInterval(async () => {
+    if (Date.now() - debut > LIVENESS_DUREE_MS) {
+      clearInterval(livenessInterval);
+      statusEl.className = 'liveness-status warn';
+      statusEl.textContent = '⏱️ Action non détectée, nouvelle tentative...';
+      livenessTimeoutTimer = setTimeout(demarrerDefiVivacite, 1200);
+      return;
+    }
+
+    let result;
+    try {
+      result = await faceapi.detectSingleFace(video, options).withFaceLandmarks(true);
+    } catch(e) { return; }
+
+    if (!result) {
+      statusEl.className = 'liveness-status';
+      statusEl.textContent = '🔍 Aucun visage détecté, positionnez-vous dans le cadre.';
+      return;
+    }
+
+    const mesure = mesurerAction(result.landmarks, livenessAction.key);
+    if (mesure == null) return;
+
+    if (livenessState === 'calibrage') {
+      livenessBaselineSamples.push(mesure);
+      if (livenessBaselineSamples.length >= 4) {
+        livenessBaseline = livenessBaselineSamples.reduce((a,b) => a+b, 0) / livenessBaselineSamples.length;
+        livenessState = 'attente';
+        statusEl.textContent = `👉 ${livenessAction.label}`;
+      }
+      return;
+    }
+
+    if (livenessState === 'attente') {
+      if (seuilFranchi(livenessAction.key, mesure, livenessBaseline)) {
+        if (livenessAction.key === 'clignement') {
+          livenessState = 'ferme';
+          livenessFermeDepuis = Date.now();
+        } else {
+          confirmerVivacite();
+        }
+      }
+      return;
+    }
+
+    if (livenessState === 'ferme') {
+      if (mesure >= livenessBaseline * 0.85) {
+        confirmerVivacite();
+      } else if (Date.now() - livenessFermeDepuis > 1500) {
+        livenessState = 'attente';
+      }
+    }
+  }, 180);
+}
+
+function confirmerVivacite() {
+  clearInterval(livenessInterval);
+  clearTimeout(livenessTimeoutTimer);
+  livenessState = 'detecte';
+  const statusEl = document.getElementById('liveness-status');
+  statusEl.className = 'liveness-status ok';
+  statusEl.textContent = '✅ Vivacité confirmée';
+  livenessActionValidee = livenessAction ? livenessAction.key : null;
+  capturerPhotoFinale();
+}
+
+function capturerPhotoFinale() {
   const video = document.getElementById('camera-video');
   const canvas = document.getElementById('photo-canvas');
   const ctx = canvas.getContext('2d');
@@ -705,54 +881,38 @@ async function prendrPhoto() {
   canvas.width  = video.videoWidth  || 640;
   canvas.height = video.videoHeight || 480;
 
-  // Miroir horizontal (comme l'aperçu)
   ctx.translate(canvas.width, 0);
   ctx.scale(-1, 1);
   ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-  const base64 = canvas.toDataURL('image/jpeg', 0.85);
+  photoBase64 = canvas.toDataURL('image/jpeg', 0.85);
 
-  // Vérification de visage si modèles chargés
-  if (faceModelsReady) {
-    const btnShoot = document.getElementById('btn-shoot');
-    btnShoot.disabled = true;
-    btnShoot.innerHTML = '<span>⏳</span> Vérification...';
-    try {
-      const detections = await faceapi.detectAllFaces(
-        canvas,
-        new faceapi.TinyFaceDetectorOptions({ scoreThreshold: 0.4 })
-      );
-      if (detections.length === 0) {
-        btnShoot.disabled = false;
-        btnShoot.innerHTML = '<span>📷</span> Prendre la photo';
-        afficherToastGeo('Aucun visage détecté. Placez votre visage dans le cadre et réessayez.', '📷');
-        return;
-      }
-    } catch(e) {
-      // Erreur de détection → on accepte la photo
-    }
-    btnShoot.disabled = false;
-    btnShoot.innerHTML = '<span>📷</span> Prendre la photo';
-  }
-
-  photoBase64 = base64;
-
-  // Afficher preview
   document.getElementById('photo-img').src = photoBase64;
   document.getElementById('camera-container').style.display = 'none';
   document.getElementById('photo-preview').style.display = 'block';
-  document.getElementById('btn-shoot').style.display = 'none';
   document.getElementById('btn-retake').style.display = 'flex';
   document.getElementById('btn-valider-photo').style.display = 'flex';
+}
+
+async function chargerModelesFaceApi() {
+  try {
+    const weightsUrl = 'https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/weights';
+    await Promise.all([
+      faceapi.nets.tinyFaceDetector.loadFromUri(weightsUrl),
+      faceapi.nets.faceLandmark68TinyNet.loadFromUri(weightsUrl)
+    ]);
+    faceModelsReady = true;
+    landmarkModelsReady = true;
+  } catch(e) {}
 }
 
 function reprendrPhoto() {
   photoBase64 = null;
   document.getElementById('camera-container').style.display = 'flex';
   document.getElementById('photo-preview').style.display = 'none';
-  document.getElementById('btn-shoot').style.display = 'flex';
   document.getElementById('btn-retake').style.display = 'none';
   document.getElementById('btn-valider-photo').style.display = 'none';
+  demarrerDefiVivacite();
 }
 
 function validerPhoto() {
@@ -799,7 +959,8 @@ async function badger(type) {
         type,
         photo: photoBase64,
         lat: geoLat,
-        lng: geoLng
+        lng: geoLng,
+        livenessAction: livenessActionValidee
       })
     });
     const data = await resp.json();
@@ -875,6 +1036,9 @@ function recommencer() {
   typeSelectionne  = null;
   photoBase64      = null;
   badgageEnCours   = false;
+  livenessAction   = null;
+  livenessActionValidee = null;
+  livenessState    = 'calibrage';
   document.getElementById('search').value = '';
   afficherAgents(agents);
   arreterCamera();
