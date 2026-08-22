@@ -720,9 +720,7 @@ function arreterCamera() {
 // DÉFI DE VIVACITÉ — action aléatoire à chaque badgeage
 // ══════════════════════════════════════════
 const LIVENESS_ACTIONS = [
-  { key:'tete',        icon:'🔄', label:'Tournez légèrement la tête' },
-  { key:'inclinaison', icon:'🙃', label:'Inclinez la tête sur le côté' },
-  { key:'sourire',     icon:'😄', label:'Souriez' }
+  { key:'tete', icon:'🔄', label:'Tournez légèrement la tête' }
 ];
 const LIVENESS_DUREE_MS = 9000;         // temps laissé pour réaliser l'action avant nouvelle tentative
 const LIVENESS_CAPTURE_WINDOW_MS = 15000; // temps laissé pour reprendre une pose neutre et prendre la photo
@@ -736,10 +734,7 @@ let livenessBaselineSamples = [];
 let captureCountdownInterval = null;
 
 function choisirActionAleatoire() {
-  const pool = livenessAction
-    ? LIVENESS_ACTIONS.filter(a => a.key !== livenessAction.key)
-    : LIVENESS_ACTIONS;
-  return pool[Math.floor(Math.random() * pool.length)];
+  return LIVENESS_ACTIONS[0];
 }
 
 function distancePts(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
@@ -748,14 +743,6 @@ function mesurerAction(landmarks, key) {
   const pts = landmarks.positions;
   if (!pts || pts.length < 68) return null;
 
-  if (key === 'inclinaison') {
-    const largeur = distancePts(pts[0], pts[16]);
-    return largeur ? (pts[45].y - pts[36].y) / largeur : null;
-  }
-  if (key === 'sourire') {
-    const eyeDist = distancePts(pts[36], pts[45]);
-    return eyeDist ? distancePts(pts[48], pts[54]) / eyeDist : null;
-  }
   if (key === 'tete') {
     const largeur = distancePts(pts[0], pts[16]);
     return largeur ? (pts[30].x - pts[0].x) / largeur : null;
@@ -765,9 +752,7 @@ function mesurerAction(landmarks, key) {
 
 function seuilFranchi(key, valeur, baseline) {
   switch (key) {
-    case 'inclinaison': return Math.abs(valeur - baseline) > 0.09;
-    case 'sourire':      return valeur > baseline * 1.15;
-    case 'tete':          return Math.abs(valeur - baseline) > 0.11;
+    case 'tete': return Math.abs(valeur - baseline) > 0.11;
     default: return false;
   }
 }
