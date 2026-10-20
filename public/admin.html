@@ -1909,8 +1909,11 @@ async function genererRapportRH() {
         demandesAbs.some(d => d.type === 'retard' && d.statut === 'approuve' && iso >= toISOStr(d.dateDebut) && iso <= toISOStr(d.dateFin || d.dateDebut));
     };
     const retardsJustifies = joursRetard.filter(retardJustifie).length;
-    // Depuis le 01/10/2026 : 3 retards non justifiés = 1 absence
-    const retardsPenalisables = joursRetard.filter(p => toISOStr(p.date) >= '2026-10-01' && !retardJustifie(p)).length;
+    const retardsNonJustifies = retards - retardsJustifies;
+    // Back Office depuis le 01/10/2026 : 3 retards non justifiés sur la période choisie = 1 absence
+    const retardsPenalisables = estBO
+      ? joursRetard.filter(p => toISOStr(p.date) >= '2026-10-01' && !retardJustifie(p)).length
+      : 0;
     // Juillet 2026 : justif manuelle = présence (grâce 1er mois de pointage obligatoire)
     const justifJuil2026ISOSet = new Set(
       justifsManuAgent.map(j => toISOStr(j.date)).filter(iso => iso >= '2026-07-01' && iso <= '2026-07-31')
@@ -1955,7 +1958,7 @@ async function genererRapportRH() {
       service: serviceParAgent[a.id] || '—',
       presences, absences, retards, taux, nbJAgent,
       avecJustif, sansJustif, justifAbsBO, demandesAbsTotal: demandesAbs.length,
-      permissions, joursAbsents, joursRetard, retardsJustifies, retardsPenalisables, absRetards
+      permissions, joursAbsents, joursRetard, retardsJustifies, retardsNonJustifies, retardsPenalisables, absRetards
     };
   });
 
@@ -2043,23 +2046,23 @@ async function exporterRapportRHExcel() {
   const { rapport, du, au, nbJ } = _rapportRHData;
   const wb = XLSX.utils.book_new();
 
-  const rows = [['Nom', 'ID Agent', 'Service', 'Jours ouvrés', 'Présences', 'Retards', 'Retards justifiés', 'Absences', 'dont via retards', 'Taux %', 'Avec justif.', 'Sans justif.', 'Permissions formelles']];
+  const rows = [['Nom', 'ID Agent', 'Service', 'Jours ouvrés', 'Présences', 'Retards', 'Absences', 'dont via retards', 'Taux %', 'Avec justif.', 'Sans justif.', 'Permissions formelles']];
   const svcOrdreXls = ['Superviseur', 'Back Office', 'Call Center'];
   const svcGroupsXls = {};
   rapport.forEach(a => { const s = svcOrdreXls.includes(a.service) ? a.service : 'Autre'; (svcGroupsXls[s] = svcGroupsXls[s] || []).push(a); });
   [...svcOrdreXls, 'Autre'].filter(s => svcGroupsXls[s]?.length).forEach(svc => {
-    rows.push([`── ${svc.toUpperCase()} ──`, '', '', '', '', '', '', '', '', '', '', '', '']);
+    rows.push([`── ${svc.toUpperCase()} ──`, '', '', '', '', '', '', '', '', '', '', '']);
     svcGroupsXls[svc].forEach(a => {
       const j = a.justifAbsBO || 0;
       const presXls = a.presences + j;
       const absXls  = a.absences  - j;
       const tauxXls = (((presXls) / (a.nbJAgent ?? nbJ)) * 100).toFixed(1) + '%';
-      rows.push([a.nom, a.id, a.service, a.nbJAgent ?? nbJ, presXls, a.retards, a.retardsJustifies, absXls, a.absRetards, tauxXls, a.avecJustif - j, a.sansJustif, a.permissions]);
+      rows.push([a.nom, a.id, a.service, a.nbJAgent ?? nbJ, presXls, a.retardsNonJustifies, absXls, a.absRetards, tauxXls, a.avecJustif - j, a.sansJustif, a.permissions]);
     });
   });
 
   const ws = XLSX.utils.aoa_to_sheet(rows);
-  ws['!cols'] = [22,10,14,12,10,10,16,10,16,10,12,12,18].map(w => ({ wch: w }));
+  ws['!cols'] = [22,10,14,12,10,10,10,16,10,12,12,18].map(w => ({ wch: w }));
   XLSX.utils.book_append_sheet(wb, ws, 'Rapport RH');
 
   const periode = du && au ? `_${du}_au_${au}` : '';
@@ -2103,16 +2106,16 @@ async function genererQuinzaineCC() {
   const rows = [
     [titre],
     [],
-    ['Nom', 'Jours ouvrés', 'Présences', 'Retards', 'Retards justifiés', 'Absences', 'dont via retards', 'Abs. justifiées', 'Abs. non justifiées', 'Taux de présence']
+    ['Nom', 'Jours ouvrés', 'Présences', 'Retards', 'Absences', 'Abs. justifiées', 'Abs. non justifiées', 'Taux de présence']
   ];
   agents.sort((a, b) => a.nom.localeCompare(b.nom)).forEach(a => {
-    rows.push([a.nom, nbJ, a.presences, a.retards, a.retardsJustifies, a.absences, a.absRetards, a.avecJustif, a.sansJustif, a.taux + '%']);
+    rows.push([a.nom, nbJ, a.presences, a.retardsNonJustifies, a.absences, a.avecJustif, a.sansJustif, a.taux + '%']);
   });
   rows.push([]);
-  rows.push(['TOTAL', '', agents.reduce((s,a)=>s+a.presences,0), agents.reduce((s,a)=>s+a.retards,0), agents.reduce((s,a)=>s+a.retardsJustifies,0), agents.reduce((s,a)=>s+a.absences,0), agents.reduce((s,a)=>s+a.absRetards,0), agents.reduce((s,a)=>s+a.avecJustif,0), agents.reduce((s,a)=>s+a.sansJustif,0), '']);
+  rows.push(['TOTAL', '', agents.reduce((s,a)=>s+a.presences,0), agents.reduce((s,a)=>s+a.retardsNonJustifies,0), agents.reduce((s,a)=>s+a.absences,0), agents.reduce((s,a)=>s+a.avecJustif,0), agents.reduce((s,a)=>s+a.sansJustif,0), '']);
 
   const ws = XLSX.utils.aoa_to_sheet(rows);
-  ws['!cols'] = [28, 12, 12, 12, 16, 12, 16, 16, 20, 16].map(w => ({ wch: w }));
+  ws['!cols'] = [28, 12, 12, 12, 16, 20, 12, 16].map(w => ({ wch: w }));
   // Titre en gras (ligne 0)
   if (!ws['A1'].s) ws['A1'].s = {};
   ws['A1'].s = { font: { bold: true, sz: 13 } };
@@ -2170,7 +2173,7 @@ function voirJoursRetard(agentId) {
   }).join('');
   const regle = agent.retardsPenalisables > 0
     ? `<p style="font-size:0.78rem;color:#92400e;background:#fef3c7;border-radius:8px;padding:8px 12px;margin:0 0 12px 0;">
-        Règle depuis le 01/10/2026 : 3 retards non justifiés = 1 absence.
+        Règle Back Office depuis le 01/10/2026 : 3 retards non justifiés = 1 absence.
         ${agent.retardsPenalisables} retard${agent.retardsPenalisables > 1 ? 's' : ''} non justifié${agent.retardsPenalisables > 1 ? 's' : ''} → <strong>${agent.absRetards} absence${agent.absRetards > 1 ? 's' : ''}</strong></p>`
     : '';
 
@@ -2244,7 +2247,7 @@ function voirJoursAbsents(agentId) {
   document.getElementById('modal-abs-sous-titre').textContent = `${jours.length} jour${jours.length > 1 ? 's' : ''}${periode}`;
   const noteRetards = agent.absRetards > 0
     ? `<p style="font-size:0.78rem;color:#92400e;background:#fef3c7;border-radius:8px;padding:8px 12px;margin:0 0 12px 0;">
-        + <strong>${agent.absRetards} absence${agent.absRetards > 1 ? 's' : ''}</strong> au titre des retards (3 retards non justifiés = 1 absence, depuis le 01/10/2026).
+        + <strong>${agent.absRetards} absence${agent.absRetards > 1 ? 's' : ''}</strong> au titre des retards (Back Office : 3 retards non justifiés = 1 absence, depuis le 01/10/2026).
         <a href="#" onclick="voirJoursRetard('${agentId}');return false;" style="color:#d68910;">Voir les retards</a></p>`
     : '';
   document.getElementById('modal-abs-contenu').innerHTML = `${noteRetards}
