@@ -162,6 +162,11 @@ async function initDB() {
     DELETE FROM agents WHERE nom = 'PALE' OR nom LIKE '%DIARRASSOUBA%';
   `).catch(() => {});
 
+  // Migration : type de justification manuelle (absence | retard)
+  await pool.query(`
+    ALTER TABLE justifications_manuelles ADD COLUMN IF NOT EXISTS type TEXT DEFAULT 'absence';
+  `).catch(() => {});
+
   // Migration : champ actif pour la gestion des congés longue durée
   await pool.query(`
     ALTER TABLE agents ADD COLUMN IF NOT EXISTS actif BOOLEAN DEFAULT true;
@@ -658,23 +663,24 @@ app.get('/api/justifications', requireAuth, async (req, res) => {
   if (req.query.du)      { params.push(req.query.du);      query += ` AND date >= $${params.length}`; }
   if (req.query.au)      { params.push(req.query.au);      query += ` AND date <= $${params.length}`; }
   const { rows } = await pool.query(query, params);
-  res.json(rows.map(r => ({ id: r.id, agentId: r.agent_id, date: r.date })));
+  res.json(rows.map(r => ({ id: r.id, agentId: r.agent_id, date: r.date, type: r.type || 'absence' })));
 });
 
 app.post('/api/justifications', requireAuth, requireAdmin, async (req, res) => {
   const { agentId, date } = req.body;
+  const type = req.body.type === 'retard' ? 'retard' : 'absence';
   if (!agentId || !date) return res.status(400).json({ erreur: 'agentId et date requis.' });
   // Éviter les doublons
   const { rows: existing } = await pool.query(
-    'SELECT id FROM justifications_manuelles WHERE agent_id = $1 AND date = $2', [agentId, date]
+    "SELECT id FROM justifications_manuelles WHERE agent_id = $1 AND date = $2 AND COALESCE(type, 'absence') = $3", [agentId, date, type]
   );
-  if (existing.length) return res.json({ id: existing[0].id, agentId, date });
+  if (existing.length) return res.json({ id: existing[0].id, agentId, date, type });
   const id = randomUUID();
   await pool.query(
-    'INSERT INTO justifications_manuelles (id, agent_id, date) VALUES ($1, $2, $3)',
-    [id, agentId, date]
+    'INSERT INTO justifications_manuelles (id, agent_id, date, type) VALUES ($1, $2, $3, $4)',
+    [id, agentId, date, type]
   );
-  res.json({ id, agentId, date });
+  res.json({ id, agentId, date, type });
 });
 
 app.delete('/api/justifications/:id', requireAuth, requireAdmin, async (req, res) => {

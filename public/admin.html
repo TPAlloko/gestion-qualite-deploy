@@ -1899,7 +1899,18 @@ async function genererRapportRH() {
 
     // Toutes les demandes de l'agent dans la période (hors refusées)
     const demandesAbs = demandesPeriode.filter(d => d.agentId === a.id && d.statut !== 'refuse');
-    const justifsManuAgent = justifsManuelles.filter(j => j.agentId === a.id);
+    const justifsManuAgent = justifsManuelles.filter(j => j.agentId === a.id && j.type !== 'retard');
+    const justifsRetardAgent = justifsManuelles.filter(j => j.agentId === a.id && j.type === 'retard');
+
+    // Retard justifié : justification manuelle ou demande de retard prévu approuvée
+    const retardJustifie = p => {
+      const iso = toISOStr(p.date);
+      return justifsRetardAgent.some(j => toISOStr(j.date) === iso) ||
+        demandesAbs.some(d => d.type === 'retard' && d.statut === 'approuve' && iso >= toISOStr(d.dateDebut) && iso <= toISOStr(d.dateFin || d.dateDebut));
+    };
+    const retardsJustifies = joursRetard.filter(retardJustifie).length;
+    // Depuis le 01/10/2026 : 3 retards non justifiés = 1 absence
+    const retardsPenalisables = joursRetard.filter(p => toISOStr(p.date) >= '2026-10-01' && !retardJustifie(p)).length;
     // Juillet 2026 : justif manuelle = présence (grâce 1er mois de pointage obligatoire)
     const justifJuil2026ISOSet = new Set(
       justifsManuAgent.map(j => toISOStr(j.date)).filter(iso => iso >= '2026-07-01' && iso <= '2026-07-31')
@@ -1908,9 +1919,11 @@ async function genererRapportRH() {
       ...entreesPresentes.map(p => p.date),
       ...joursOuvresAgent.filter(d => justifJuil2026ISOSet.has(toISOStr(d)))
     ]);
-    const presences = [...datesPresent].reduce((s, d) => s + jourPoids(d), 0);
+    const presencesBrutes = [...datesPresent].reduce((s, d) => s + jourPoids(d), 0);
+    const absRetards = Math.min(Math.floor(retardsPenalisables / 3), presencesBrutes);
+    const presences = presencesBrutes - absRetards;
     const joursAbsents = joursOuvresAgent.filter(d => !datesPresent.has(d));
-    const absences  = joursAbsents.reduce((s, d) => s + jourPoids(d), 0);
+    const absences  = joursAbsents.reduce((s, d) => s + jourPoids(d), 0) + absRetards;
     const taux      = ((presences / nbJAgent) * 100).toFixed(1);
 
     // Jours couverts par une demande approuvée
@@ -1942,7 +1955,7 @@ async function genererRapportRH() {
       service: serviceParAgent[a.id] || '—',
       presences, absences, retards, taux, nbJAgent,
       avecJustif, sansJustif, justifAbsBO, demandesAbsTotal: demandesAbs.length,
-      permissions, joursAbsents, joursRetard
+      permissions, joursAbsents, joursRetard, retardsJustifies, retardsPenalisables, absRetards
     };
   });
 
@@ -2007,8 +2020,8 @@ async function genererRapportRH() {
         <td><div style="font-weight:700;font-size:0.88rem;">${a.nom}</div><div style="font-size:0.74rem;color:#aaa;">${a.id}</div></td>
         <td>—</td>
         <td><strong style="color:#1e8449;">${a.presences}</strong></td>
-        <td ${a.retards > 0 ? `onclick="voirJoursRetard('${a.id}')" title="Voir les jours de retard" style="cursor:pointer;"` : ''}><strong style="color:${a.retards > 0 ? '#e67e22' : '#ccc'};">${a.retards > 0 ? `<u>${a.retards}</u>` : '—'}</strong></td>
-        <td ${a.absences > 0 ? `onclick="voirJoursAbsents('${a.id}')" title="Voir les jours" style="cursor:pointer;"` : ''}><strong style="color:${a.absences > 0 ? '#c0392b' : '#ccc'};">${a.absences > 0 ? `<u>${a.absences}</u>` : '—'}</strong></td>
+        <td ${a.retards > 0 ? `onclick="voirJoursRetard('${a.id}')" title="Voir les jours de retard" style="cursor:pointer;"` : ''}><strong style="color:${a.retards > 0 ? '#e67e22' : '#ccc'};">${a.retards > 0 ? `<u>${a.retards}</u>` : '—'}</strong>${a.retardsJustifies > 0 ? `<div style="font-size:0.72rem;color:#1e8449;">✅ ${a.retardsJustifies} justifié${a.retardsJustifies > 1 ? 's' : ''}</div>` : ''}</td>
+        <td ${a.absences > 0 ? `onclick="voirJoursAbsents('${a.id}')" title="Voir les jours" style="cursor:pointer;"` : ''}><strong style="color:${a.absences > 0 ? '#c0392b' : '#ccc'};">${a.absences > 0 ? `<u>${a.absences}</u>` : '—'}</strong>${a.absRetards > 0 ? `<div style="font-size:0.72rem;color:#d68910;">dont ${a.absRetards} via retards</div>` : ''}</td>
         <td><strong style="color:${tauxColor};">${a.taux}%</strong></td>
         <td>${justifCell}</td>
         <td><strong style="color:${a.permissions > 0 ? '#1A5676' : '#ccc'};">${a.permissions || '—'}</strong></td>
@@ -2030,23 +2043,23 @@ async function exporterRapportRHExcel() {
   const { rapport, du, au, nbJ } = _rapportRHData;
   const wb = XLSX.utils.book_new();
 
-  const rows = [['Nom', 'ID Agent', 'Service', 'Jours ouvrés', 'Présences', 'Retards', 'Absences', 'Taux %', 'Avec justif.', 'Sans justif.', 'Permissions formelles']];
+  const rows = [['Nom', 'ID Agent', 'Service', 'Jours ouvrés', 'Présences', 'Retards', 'Retards justifiés', 'Absences', 'dont via retards', 'Taux %', 'Avec justif.', 'Sans justif.', 'Permissions formelles']];
   const svcOrdreXls = ['Superviseur', 'Back Office', 'Call Center'];
   const svcGroupsXls = {};
   rapport.forEach(a => { const s = svcOrdreXls.includes(a.service) ? a.service : 'Autre'; (svcGroupsXls[s] = svcGroupsXls[s] || []).push(a); });
   [...svcOrdreXls, 'Autre'].filter(s => svcGroupsXls[s]?.length).forEach(svc => {
-    rows.push([`── ${svc.toUpperCase()} ──`, '', '', '', '', '', '', '', '', '', '']);
+    rows.push([`── ${svc.toUpperCase()} ──`, '', '', '', '', '', '', '', '', '', '', '', '']);
     svcGroupsXls[svc].forEach(a => {
       const j = a.justifAbsBO || 0;
       const presXls = a.presences + j;
       const absXls  = a.absences  - j;
       const tauxXls = (((presXls) / (a.nbJAgent ?? nbJ)) * 100).toFixed(1) + '%';
-      rows.push([a.nom, a.id, a.service, a.nbJAgent ?? nbJ, presXls, a.retards, absXls, tauxXls, a.avecJustif - j, a.sansJustif, a.permissions]);
+      rows.push([a.nom, a.id, a.service, a.nbJAgent ?? nbJ, presXls, a.retards, a.retardsJustifies, absXls, a.absRetards, tauxXls, a.avecJustif - j, a.sansJustif, a.permissions]);
     });
   });
 
   const ws = XLSX.utils.aoa_to_sheet(rows);
-  ws['!cols'] = [22,10,14,12,10,10,10,10,12,12,18].map(w => ({ wch: w }));
+  ws['!cols'] = [22,10,14,12,10,10,16,10,16,10,12,12,18].map(w => ({ wch: w }));
   XLSX.utils.book_append_sheet(wb, ws, 'Rapport RH');
 
   const periode = du && au ? `_${du}_au_${au}` : '';
@@ -2090,16 +2103,16 @@ async function genererQuinzaineCC() {
   const rows = [
     [titre],
     [],
-    ['Nom', 'Jours ouvrés', 'Présences', 'Retards', 'Absences', 'Abs. justifiées', 'Abs. non justifiées', 'Taux de présence']
+    ['Nom', 'Jours ouvrés', 'Présences', 'Retards', 'Retards justifiés', 'Absences', 'dont via retards', 'Abs. justifiées', 'Abs. non justifiées', 'Taux de présence']
   ];
   agents.sort((a, b) => a.nom.localeCompare(b.nom)).forEach(a => {
-    rows.push([a.nom, nbJ, a.presences, a.retards, a.absences, a.avecJustif, a.sansJustif, a.taux + '%']);
+    rows.push([a.nom, nbJ, a.presences, a.retards, a.retardsJustifies, a.absences, a.absRetards, a.avecJustif, a.sansJustif, a.taux + '%']);
   });
   rows.push([]);
-  rows.push(['TOTAL', '', agents.reduce((s,a)=>s+a.presences,0), agents.reduce((s,a)=>s+a.retards,0), agents.reduce((s,a)=>s+a.absences,0), agents.reduce((s,a)=>s+a.avecJustif,0), agents.reduce((s,a)=>s+a.sansJustif,0), '']);
+  rows.push(['TOTAL', '', agents.reduce((s,a)=>s+a.presences,0), agents.reduce((s,a)=>s+a.retards,0), agents.reduce((s,a)=>s+a.retardsJustifies,0), agents.reduce((s,a)=>s+a.absences,0), agents.reduce((s,a)=>s+a.absRetards,0), agents.reduce((s,a)=>s+a.avecJustif,0), agents.reduce((s,a)=>s+a.sansJustif,0), '']);
 
   const ws = XLSX.utils.aoa_to_sheet(rows);
-  ws['!cols'] = [28, 12, 12, 12, 16, 20, 12, 16].map(w => ({ wch: w }));
+  ws['!cols'] = [28, 12, 12, 12, 16, 12, 16, 16, 20, 16].map(w => ({ wch: w }));
   // Titre en gras (ligne 0)
   if (!ws['A1'].s) ws['A1'].s = {};
   ws['A1'].s = { font: { bold: true, sz: 13 } };
@@ -2121,9 +2134,11 @@ setInterval(() => { chargerStats(); chargerFlux(); }, 30000);
 
 function voirJoursRetard(agentId) {
   if (!_rapportRHData) return;
-  const { rapport, du, au } = _rapportRHData;
+  const { rapport, du, au, demandesPeriode, justifsManuelles } = _rapportRHData;
   const agent = rapport.find(a => a.id === agentId);
   if (!agent || !agent.joursRetard?.length) return;
+  const justifsRetardAgent = (justifsManuelles || []).filter(j => j.agentId === agentId && j.type === 'retard');
+  const demandesRetard = (demandesPeriode || []).filter(d => d.agentId === agentId && d.type === 'retard' && d.statut === 'approuve');
 
   const fmt = dateStr => {
     const dt = parseDateFR(dateStr);
@@ -2131,19 +2146,43 @@ function voirJoursRetard(agentId) {
     return dt.toLocaleDateString('fr-FR', { weekday: 'long', day: '2-digit', month: 'long' });
   };
 
-  const rows = agent.joursRetard.map(p => `<tr style="border-bottom:1px solid #f0f0f0;">
-    <td style="padding:9px 14px;font-size:0.85rem;text-transform:capitalize;">${fmt(p.date)}</td>
-    <td style="padding:9px 14px;"><span style="color:#e67e22;font-weight:600;">⏰ ${p.heure}</span></td>
-  </tr>`).join('');
+  const rows = agent.joursRetard.map(p => {
+    const dateISO = toISOStr(p.date);
+    const manuelle = justifsRetardAgent.find(j => toISOStr(j.date) === dateISO);
+    const dem = demandesRetard.find(d => dateISO >= toISOStr(d.dateDebut) && dateISO <= toISOStr(d.dateFin || d.dateDebut));
+    let justif;
+    if (manuelle) {
+      justif = `<span style="color:#1e8449;font-size:0.82rem;">✅ Justifié</span>
+        <button onclick="retirerJustifManuelle('${manuelle.id}','${agentId}','retard')" title="Retirer la justification"
+          style="margin-left:8px;border:none;color:#c0392b;cursor:pointer;font-size:0.78rem;padding:2px 6px;border-radius:6px;background:#fde8e8;">✕ Retirer</button>`;
+    } else if (dem) {
+      justif = '<span style="color:#1e8449;font-size:0.82rem;">✅ Justifié (retard prévu)</span>';
+    } else {
+      justif = `<span style="color:#c0392b;font-size:0.82rem;">⚠️ Non justifié</span>
+        <button onclick="marquerJustifie('${agentId}','${dateISO}','retard')"
+          style="margin-left:8px;border:none;background:#e8f5e9;color:#1e8449;cursor:pointer;font-size:0.78rem;padding:3px 9px;border-radius:6px;font-weight:600;">✅ Marquer justifié</button>`;
+    }
+    return `<tr style="border-bottom:1px solid #f0f0f0;">
+      <td style="padding:9px 14px;font-size:0.85rem;text-transform:capitalize;">${fmt(p.date)}</td>
+      <td style="padding:9px 14px;"><span style="color:#e67e22;font-weight:600;">⏰ ${p.heure}</span></td>
+      <td style="padding:9px 14px;">${justif}</td>
+    </tr>`;
+  }).join('');
+  const regle = agent.retardsPenalisables > 0
+    ? `<p style="font-size:0.78rem;color:#92400e;background:#fef3c7;border-radius:8px;padding:8px 12px;margin:0 0 12px 0;">
+        Règle depuis le 01/10/2026 : 3 retards non justifiés = 1 absence.
+        ${agent.retardsPenalisables} retard${agent.retardsPenalisables > 1 ? 's' : ''} non justifié${agent.retardsPenalisables > 1 ? 's' : ''} → <strong>${agent.absRetards} absence${agent.absRetards > 1 ? 's' : ''}</strong></p>`
+    : '';
 
   const periode = du && au ? ` · ${du} → ${au}` : '';
   document.getElementById('modal-abs-titre').textContent = `Retards — ${agent.nom}`;
   document.getElementById('modal-abs-sous-titre').textContent = `${agent.joursRetard.length} retard${agent.joursRetard.length > 1 ? 's' : ''}${periode}`;
-  document.getElementById('modal-abs-contenu').innerHTML = `
+  document.getElementById('modal-abs-contenu').innerHTML = `${regle}
     <table style="width:100%;border-collapse:collapse;">
       <thead><tr style="background:#fef3cd;">
         <th style="padding:8px 14px;text-align:left;font-size:0.74rem;color:#d68910;text-transform:uppercase;letter-spacing:0.4px;">Date</th>
         <th style="padding:8px 14px;text-align:left;font-size:0.74rem;color:#d68910;text-transform:uppercase;letter-spacing:0.4px;">Heure d'arrivée</th>
+        <th style="padding:8px 14px;text-align:left;font-size:0.74rem;color:#d68910;text-transform:uppercase;letter-spacing:0.4px;">Justification</th>
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>`;
@@ -2154,11 +2193,11 @@ function voirJoursAbsents(agentId) {
   if (!_rapportRHData) return;
   const { rapport, du, au, demandesPeriode, justifsManuelles } = _rapportRHData;
   const agent = rapport.find(a => a.id === agentId);
-  if (!agent || !agent.joursAbsents?.length) return;
+  if (!agent || (!agent.joursAbsents?.length && !agent.absRetards)) return;
 
   const jours = agent.joursAbsents;
   const demandesAgent = (demandesPeriode || []).filter(d => d.agentId === agentId && d.statut !== 'refuse');
-  const justifsManuAgent = (justifsManuelles || []).filter(j => j.agentId === agentId);
+  const justifsManuAgent = (justifsManuelles || []).filter(j => j.agentId === agentId && j.type !== 'retard');
 
   const fmt = dateStr => {
     const dt = parseDateFR(dateStr);
@@ -2203,7 +2242,12 @@ function voirJoursAbsents(agentId) {
   const periode = du && au ? ` · ${du} → ${au}` : '';
   document.getElementById('modal-abs-titre').textContent = `Absences — ${agent.nom}`;
   document.getElementById('modal-abs-sous-titre').textContent = `${jours.length} jour${jours.length > 1 ? 's' : ''}${periode}`;
-  document.getElementById('modal-abs-contenu').innerHTML = `
+  const noteRetards = agent.absRetards > 0
+    ? `<p style="font-size:0.78rem;color:#92400e;background:#fef3c7;border-radius:8px;padding:8px 12px;margin:0 0 12px 0;">
+        + <strong>${agent.absRetards} absence${agent.absRetards > 1 ? 's' : ''}</strong> au titre des retards (3 retards non justifiés = 1 absence, depuis le 01/10/2026).
+        <a href="#" onclick="voirJoursRetard('${agentId}');return false;" style="color:#d68910;">Voir les retards</a></p>`
+    : '';
+  document.getElementById('modal-abs-contenu').innerHTML = `${noteRetards}
     <table style="width:100%;border-collapse:collapse;">
       <thead><tr style="background:#fde8e8;">
         <th style="padding:8px 14px;text-align:left;font-size:0.74rem;color:#c0392b;text-transform:uppercase;letter-spacing:0.4px;">Date</th>
@@ -2215,25 +2259,27 @@ function voirJoursAbsents(agentId) {
   document.getElementById('modal-absences').style.display = 'flex';
 }
 
-async function marquerJustifie(agentId, dateISO) {
+async function marquerJustifie(agentId, dateISO, type = 'absence') {
   const res = await fetch('/api/justifications', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ agentId, date: dateISO })
+    body: JSON.stringify({ agentId, date: dateISO, type })
   });
   if (!res.ok) return;
-  const data = await res.json();
-  if (!_rapportRHData.justifsManuelles) _rapportRHData.justifsManuelles = [];
-  _rapportRHData.justifsManuelles.push(data);
-  voirJoursAbsents(agentId);
+  await rafraichirApresJustif(agentId, type);
 }
 
-async function retirerJustifManuelle(id, agentId) {
+async function retirerJustifManuelle(id, agentId, type = 'absence') {
   const res = await fetch('/api/justifications/' + id, { method: 'DELETE' });
   if (!res.ok) return;
-  if (_rapportRHData.justifsManuelles)
-    _rapportRHData.justifsManuelles = _rapportRHData.justifsManuelles.filter(j => j.id !== id);
-  voirJoursAbsents(agentId);
+  await rafraichirApresJustif(agentId, type);
+}
+
+// Recalcule le rapport (une justification change absences, taux et pénalité retards) puis rouvre la modale
+async function rafraichirApresJustif(agentId, type) {
+  await genererRapportRH();
+  if (type === 'retard') voirJoursRetard(agentId);
+  else voirJoursAbsents(agentId);
 }
 
 function fermerModalAbsences() {
