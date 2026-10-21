@@ -170,9 +170,6 @@ async function initDB() {
   // Migration : champ actif pour la gestion des congés longue durée
   await pool.query(`
     ALTER TABLE agents ADD COLUMN IF NOT EXISTS actif BOOLEAN DEFAULT true;
-    UPDATE agents SET actif = false
-      WHERE (nom = 'OUATTARA' AND prenom = 'Hawa')
-         OR nom_complet = 'Hawa OUATTARA';
   `).catch(() => {});
 
   // Synchroniser les noms dans les pointages si un agent a été renommé
