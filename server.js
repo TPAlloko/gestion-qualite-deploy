@@ -479,6 +479,7 @@ app.post('/api/badger', rateLimit(10, 60_000), async (req, res) => {
 
   io.emit('nouveau-pointage', pointage);
   io.emit('stats-update');
+  if (type === 'entree' && estAgentBO(agent)) envoyerPushArriveeBO(pointage).catch(() => {});
 
   res.json({
     ok: true, type, retard, photo: photoData,
@@ -766,6 +767,64 @@ async function envoyerPushDemande(demande) {
     }
   }
 }
+
+// ── Notifications admin : arrivées des agents Back Office ──
+const ADMIN_PUSH_ID = '__ADMIN__';
+
+function estAgentBO(agent) {
+  return agent.service === 'Back Office' || (!agent.service && (agent.poste || '').includes('Back Office'));
+}
+
+async function envoyerPushArriveeBO(pointage) {
+  if (!VAPID_PUBLIC || !VAPID_PRIVATE) return;
+  const { rows: subs } = await pool.query(
+    'SELECT id, subscription FROM push_subscriptions WHERE agent_id = $1', [ADMIN_PUSH_ID]
+  );
+  if (!subs.length) return;
+  const nom = pointage.nom_complet || `${pointage.prenom} ${pointage.nom}`;
+  const payload = JSON.stringify({
+    title: pointage.retard ? '⚠️ Arrivée en retard — Back Office' : '✅ Arrivée — Back Office',
+    body: `${nom} a badgé à ${pointage.heure}` + (pointage.retard ? ' (retard)' : ''),
+    tag: 'arrivee-' + pointage.agentId,
+    url: '/admin'
+  });
+  for (const sub of subs) {
+    try {
+      await webpush.sendNotification(sub.subscription, payload);
+    } catch (e) {
+      if (e.statusCode === 410 || e.statusCode === 404) {
+        await pool.query('DELETE FROM push_subscriptions WHERE id = $1', [sub.id]);
+      }
+    }
+  }
+}
+
+app.post('/api/admin/push/subscribe', requireAuth, requireAdmin, async (req, res) => {
+  const { subscription } = req.body;
+  if (!subscription || !subscription.endpoint) return res.status(400).json({ erreur: 'Données manquantes.' });
+  if (!VAPID_PRIVATE) return res.status(503).json({ erreur: 'Notifications non configurées sur le serveur.' });
+  const { rows: existing } = await pool.query(
+    "SELECT id FROM push_subscriptions WHERE subscription->>'endpoint' = $1", [subscription.endpoint]
+  );
+  if (existing.length) {
+    await pool.query(
+      'UPDATE push_subscriptions SET agent_id = $1, subscription = $2, created_at = NOW() WHERE id = $3',
+      [ADMIN_PUSH_ID, JSON.stringify(subscription), existing[0].id]
+    );
+  } else {
+    await pool.query(
+      'INSERT INTO push_subscriptions (id, agent_id, subscription) VALUES ($1, $2, $3)',
+      [randomUUID(), ADMIN_PUSH_ID, JSON.stringify(subscription)]
+    );
+  }
+  res.json({ ok: true });
+});
+
+app.post('/api/admin/push/unsubscribe', requireAuth, requireAdmin, async (req, res) => {
+  const { endpoint } = req.body;
+  if (endpoint) await pool.query("DELETE FROM push_subscriptions WHERE subscription->>'endpoint' = $1", [endpoint]);
+  res.json({ ok: true });
+});
 
 app.get('/api/push/vapid-key', (req, res) => {
   res.json({ key: VAPID_PUBLIC });

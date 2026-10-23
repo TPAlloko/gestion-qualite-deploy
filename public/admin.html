@@ -223,6 +223,9 @@
   </div>
   <div class="header-right">
     <div class="live-dot"><div class="dot"></div>Temps réel</div>
+    <button id="btn-notif-bo" onclick="basculerNotifBO()" title="Notifications à l'arrivée des agents Back Office"
+      style="background:rgba(255,255,255,0.12);border:1px solid rgba(255,255,255,0.2);color:white;
+             padding:6px 12px;border-radius:8px;cursor:pointer;font-size:0.8rem;font-weight:600;">🔔 Notifs BO</button>
     <div class="header-heure" id="heure-header"></div>
     <div style="display:flex;align-items:center;gap:10px;border-left:1px solid rgba(255,255,255,0.2);padding-left:16px;">
       <div style="text-align:right;">
@@ -1424,6 +1427,55 @@ socket.on('nouveau-pointage', (p) => {
 });
 socket.on('stats-update', () => { chargerStats(); });
 socket.on('agents-mis-a-jour', () => { if(document.getElementById('tab-agents').classList.contains('active')) chargerAgents(); });
+
+// ── Notifications push : arrivées des agents BO ──
+function urlB64ToUint8Array(b64) {
+  const pad = '='.repeat((4 - b64.length % 4) % 4);
+  const raw = atob((b64 + pad).replace(/-/g, '+').replace(/_/g, '/'));
+  return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
+}
+
+async function majBoutonNotifBO() {
+  const btn = document.getElementById('btn-notif-bo');
+  if (!btn) return;
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) { btn.style.display = 'none'; return; }
+  const reg = await navigator.serviceWorker.register('/sw.js');
+  const sub = await reg.pushManager.getSubscription();
+  const actif = sub && Notification.permission === 'granted';
+  btn.textContent = actif ? '🔔 Notifs BO activées' : '🔕 Activer notifs BO';
+  btn.style.background = actif ? 'rgba(46,204,113,0.35)' : 'rgba(255,255,255,0.12)';
+}
+
+async function basculerNotifBO() {
+  try {
+    const reg = await navigator.serviceWorker.register('/sw.js');
+    await navigator.serviceWorker.ready;
+    const existante = await reg.pushManager.getSubscription();
+    if (existante && Notification.permission === 'granted') {
+      if (!confirm('Désactiver les notifications d\'arrivée BO sur cet appareil ?')) return;
+      await fetch('/api/admin/push/unsubscribe', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ endpoint: existante.endpoint })
+      });
+      await existante.unsubscribe();
+      return majBoutonNotifBO();
+    }
+    const perm = await Notification.requestPermission();
+    if (perm !== 'granted') { alert('Notifications refusées par le navigateur.'); return; }
+    const { key } = await fetch('/api/push/vapid-key').then(r => r.json());
+    if (existante) await existante.unsubscribe();
+    const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64ToUint8Array(key) });
+    const res = await fetch('/api/admin/push/subscribe', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ subscription: sub })
+    });
+    if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.erreur || 'Erreur lors de l\'activation.'); }
+  } catch (e) {
+    alert('Impossible d\'activer les notifications : ' + e.message);
+  }
+  majBoutonNotifBO();
+}
+majBoutonNotifBO().catch(() => {});
 
 // ── Déconnexion ──
 async function seDeconnecter() {

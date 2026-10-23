@@ -4,13 +4,14 @@ self.addEventListener('push', event => {
     self.registration.showNotification(data.title, {
       body: data.body,
       icon: '/favicon.ico',
-      tag: 'demande-decision',
+      tag: data.tag || 'demande-decision',
       renotify: true,
+      data: { url: data.url || '/demandes' },
     })
   );
 });
 
 self.addEventListener('notificationclick', event => {
   event.notification.close();
-  event.waitUntil(clients.openWindow('/demandes'));
+  event.waitUntil(clients.openWindow((event.notification.data && event.notification.data.url) || '/demandes'));
 });
